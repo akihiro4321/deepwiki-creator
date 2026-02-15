@@ -1,0 +1,22 @@
+# Gemini CLI カスタムコマンド: /deepwiki
+# 配置先: .gemini/commands/deepwiki.toml（プロジェクト用）
+#      または ~/.gemini/commands/deepwiki.toml（グローバル用）
+
+description = "リポジトリからWikiドキュメントを自動生成する"
+
+prompt = """
+deepwiki-creator スキルを使って、指定されたリポジトリのWikiドキュメントを生成してください。
+
+対象: {{args}}
+
+上記が空の場合はカレントディレクトリを対象にしてください。
+引数にオプションが含まれる場合は以下の形式でパースしてください：
+- `--lang <code>`: 出力言語（デフォルト: en）
+- `--mode <mode>`: comprehensive または concise（デフォルト: comprehensive）
+- `--include <dirs>`: 対象ディレクトリ（カンマ区切り）
+- `--output <path>`: 出力先（デフォルト: ./wiki-output）
+- `--no-diagrams`: Mermaid図を生成しない
+- 最初の引数がオプション以外の場合はリポジトリパスとして扱う
+
+deepwiki-creator スキルのワークフロー（Step 0〜5）に従って実行してください。
+"""
