@@ -7,6 +7,7 @@ tools:
   - grep_search
   - write_file
   - replace
+  - run_shell_command
 model: gemini-3-flash-preview
 temperature: 0.2
 max_turns: 10
@@ -71,12 +72,40 @@ page_prompt.md のテンプレートに従い、以下を必ず含むページ�
 - **関連ページへのリンク**: 一貫性ガイドのクロスリファレンスに従う
 - **生成元ファイルの記載**: ページ末尾に `*生成元: ...*`
 
-### Step 5: ファイル書き出し
+### Step 5: ファイル書き出しと自己検証
 
 1. `output_path` が `OUTPUT_DIR` 配下であることを確認する（`..` を含むパスは拒否）
 2. 出力先ディレクトリが存在しなければ `mkdir -p` で作成する
 3. 生成したMarkdownを `output_path` に書き出す
-4. 書き出し後、行数を確認しモード別の最低行数（Comprehensive: 60行、Concise: 30行）未満なら追記する
+
+### Step 6: 自己検証（書き出し後に必ず実行）
+
+書き出したファイルに対して以下の定量チェックを実行する。
+**1つでも不合格の場合、該当箇所を追記して再度書き出す。**
+
+```bash
+# 行数チェック（Comprehensive: 60行以上）
+LINE_COUNT=$(wc -l < "$output_path" | xargs)
+
+# コードスニペットチェック（mermaid以外の```ブロック）
+ALL_CODE=$(grep -c '^```[a-z]' "$output_path" 2>/dev/null || echo 0)
+MERMAID=$(grep -c '```mermaid' "$output_path" 2>/dev/null || echo 0)
+SNIPPET_COUNT=$((ALL_CODE - MERMAID))
+
+# Mermaid図チェック
+DIAG_COUNT=$MERMAID
+```
+
+**合格基準（Comprehensiveモード）:**
+- `LINE_COUNT >= 60` — 不合格なら、設計判断・エラーハンドリング・データフローの節を追記
+- `SNIPPET_COUNT >= 1` — 不合格なら、relevant_filesから重要な実装ロジック5〜10行を抽出して追記
+- `DIAG_COUNT >= 1` — 不合格なら、コンポーネント図またはsequenceDiagramを追記
+
+**不合格時の再生成手順:**
+1. 不足している要素を特定する
+2. relevant_files のコードを再度読み込む
+3. 不足要素のみを追記する（既存内容は維持）
+4. 再度自己検証を実行する
 
 ## 品質チェックリスト（書き出し前に確認）
 

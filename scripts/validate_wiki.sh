@@ -82,8 +82,8 @@ echo "📄 Total pages: $MD_COUNT"
 # ページ数最低ラインチェック（comprehensive モード）
 MODE=$(python3 -c "import json, sys; d=json.load(open(sys.argv[1])); print(d.get('mode',''))" "$OUTPUT_DIR/_meta.json" 2>/dev/null || true)
 if [ "$MODE" = "comprehensive" ] && [ "$MD_COUNT" -lt 15 ]; then
-  echo "⚠️  WARNING: Comprehensive mode requires >= 15 pages, found $MD_COUNT"
-  WARNINGS=$((WARNINGS + 1))
+  echo "❌ ERROR: Comprehensive mode requires >= 15 pages, found $MD_COUNT"
+  ERRORS=$((ERRORS + 1))
 fi
 
 # _meta.json フィールド検証
@@ -179,22 +179,37 @@ for md_file in $MD_FILES; do
   [ "$snippet_count" -lt 0 ] && snippet_count=0
   TOTAL_SNIPPETS=$((TOTAL_SNIPPETS + snippet_count))
 
-  # ステータス判定
+  # ステータス判定（Comprehensiveモードではコードスニペット・Mermaid図・行数不足をERRORに昇格）
   status=""
   if [ "$line_count" -lt "$MIN_LINES" ]; then
-    status="${status}⚠️短 "
     PAGES_TOO_SHORT=$((PAGES_TOO_SHORT + 1))
-    WARNINGS=$((WARNINGS + 1))
+    if [ "$MODE" = "comprehensive" ]; then
+      status="${status}❌短($line_count行) "
+      ERRORS=$((ERRORS + 1))
+    else
+      status="${status}⚠️短 "
+      WARNINGS=$((WARNINGS + 1))
+    fi
   fi
   if [ "$snippet_count" -eq 0 ]; then
-    status="${status}⚠️コード無 "
     PAGES_WITHOUT_CODE=$((PAGES_WITHOUT_CODE + 1))
-    WARNINGS=$((WARNINGS + 1))
+    if [ "$MODE" = "comprehensive" ]; then
+      status="${status}❌コード無 "
+      ERRORS=$((ERRORS + 1))
+    else
+      status="${status}⚠️コード無 "
+      WARNINGS=$((WARNINGS + 1))
+    fi
   fi
   if [ "$diag_count" -eq 0 ]; then
-    status="${status}⚠️図無 "
     PAGES_WITHOUT_MERMAID=$((PAGES_WITHOUT_MERMAID + 1))
-    WARNINGS=$((WARNINGS + 1))
+    if [ "$MODE" = "comprehensive" ]; then
+      status="${status}❌図無 "
+      ERRORS=$((ERRORS + 1))
+    else
+      status="${status}⚠️図無 "
+      WARNINGS=$((WARNINGS + 1))
+    fi
   fi
 
   # Mermaid閉じタグチェック
@@ -214,6 +229,54 @@ for md_file in $MD_FILES; do
   [ -z "$status" ] && status="✅"
   printf "%-35s %5d %5d %5d %s\n" "$fname" "$line_count" "$snippet_count" "$diag_count" "$status"
 done
+
+# ============================================================
+# 4.5. 定性品質チェック（Comprehensiveモード）
+# ============================================================
+if [ "$MODE" = "comprehensive" ]; then
+  echo ""
+  echo "--- 4.5. Qualitative Check (Comprehensive) ---"
+  echo ""
+
+  PAGES_NO_SIGNATURE=0
+  PAGES_NO_ERROR_HANDLING=0
+  PAGES_NO_DESIGN_WHY=0
+
+  for md_file in $MD_FILES; do
+    fname=$(basename "$md_file" .md)
+    issues=""
+
+    # メソッドシグネチャの存在チェック（`func(`, `method(`, 引数型パターン）
+    if ! grep -qE '`[A-Za-z_]+\([^)]*\)' "$md_file" 2>/dev/null; then
+      PAGES_NO_SIGNATURE=$((PAGES_NO_SIGNATURE + 1))
+      issues="${issues}署名無 "
+    fi
+
+    # 異常系記述の簡易チェック
+    if ! grep -qiE '(error|エラー|例外|exception|retry|リトライ|fallback|フォールバック|timeout|タイムアウト|validation|バリデーション|try-catch|失敗)' "$md_file" 2>/dev/null; then
+      PAGES_NO_ERROR_HANDLING=$((PAGES_NO_ERROR_HANDLING + 1))
+      issues="${issues}異常系無 "
+    fi
+
+    # 設計判断（Why）の簡易チェック
+    if ! grep -qiE '(設計判断|design.?decision|なぜ|理由|トレードオフ|trade.?off|代替|alternative|選んだ|採用|パターン.*理由|ため.*設計)' "$md_file" 2>/dev/null; then
+      PAGES_NO_DESIGN_WHY=$((PAGES_NO_DESIGN_WHY + 1))
+      issues="${issues}Why無 "
+    fi
+
+    if [ -n "$issues" ]; then
+      echo "  ⚠️  $fname: $issues"
+      WARNINGS=$((WARNINGS + 1))
+    fi
+  done
+
+  if [ "$PAGES_NO_SIGNATURE" -eq 0 ] && [ "$PAGES_NO_ERROR_HANDLING" -eq 0 ] && [ "$PAGES_NO_DESIGN_WHY" -eq 0 ]; then
+    echo "  ✅ All pages pass qualitative checks"
+  else
+    echo ""
+    echo "  Summary: $PAGES_NO_SIGNATURE page(s) missing signatures, $PAGES_NO_ERROR_HANDLING page(s) missing error handling, $PAGES_NO_DESIGN_WHY page(s) missing design rationale"
+  fi
+fi
 
 # ============================================================
 # 5. 空ファイルチェック
@@ -271,21 +334,24 @@ echo "📄 Pages: $MD_COUNT"
 echo "📊 Mermaid diagrams: $TOTAL_DIAGRAMS"
 echo "💻 Code snippets: $TOTAL_SNIPPETS"
 echo ""
+SEVERITY="⚠️"
+[ "$MODE" = "comprehensive" ] && SEVERITY="❌"
+
 echo "Quality Checks:"
 if [ "$PAGES_WITHOUT_CODE" -eq 0 ]; then
   echo "  ✅ Code snippets: All pages have snippets"
 else
-  echo "  ⚠️  Code snippets: $PAGES_WITHOUT_CODE page(s) missing"
+  echo "  $SEVERITY Code snippets: $PAGES_WITHOUT_CODE page(s) missing"
 fi
 if [ "$PAGES_WITHOUT_MERMAID" -eq 0 ]; then
   echo "  ✅ Mermaid diagrams: All pages have diagrams"
 else
-  echo "  ⚠️  Mermaid diagrams: $PAGES_WITHOUT_MERMAID page(s) missing"
+  echo "  $SEVERITY Mermaid diagrams: $PAGES_WITHOUT_MERMAID page(s) missing"
 fi
 if [ "$PAGES_TOO_SHORT" -eq 0 ]; then
   echo "  ✅ Page depth: All pages >= $MIN_LINES lines"
 else
-  echo "  ⚠️  Page depth: $PAGES_TOO_SHORT page(s) under $MIN_LINES lines"
+  echo "  $SEVERITY Page depth: $PAGES_TOO_SHORT page(s) under $MIN_LINES lines"
 fi
 if [ "$BROKEN_LINKS" -eq 0 ] && [ "$BROKEN_INTERNAL" -eq 0 ]; then
   echo "  ✅ Links: All valid"

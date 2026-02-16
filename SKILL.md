@@ -243,6 +243,29 @@ _meta.json の各ページに対して、**`page-writer` サブエージェン�
 - パス2で各ページのコードを読みながら深掘りできる（品質確保）
 - コンテキスト枯渇時でもパス1の骨格がベースラインとして残る
 
+**パス間の品質ゲート（必須）：**
+
+パス1完了後、パス2に進む前に以下を検証する。
+**1つでも不合格の項目があれば、パス2で該当ページを優先的に肉付けすること。**
+
+```bash
+# 全ページの行数チェック
+for md_file in $(find "$OUTPUT_DIR/sections" -name "*.md" -type f); do
+  line_count=$(wc -l < "$md_file" | xargs)
+  code_count=$(grep -c '^```[a-z]' "$md_file" 2>/dev/null || echo 0)
+  mermaid_count=$(grep -c '```mermaid' "$md_file" 2>/dev/null || echo 0)
+  snippet_count=$((code_count - mermaid_count))
+  echo "$(basename "$md_file"): ${line_count}行, コード=${snippet_count}, 図=${mermaid_count}"
+done
+```
+
+パス2では、上記の結果で **60行未満 / コードスニペット0 / Mermaid図0** の
+ページを最優先で肉付けする。パス2完了後もなお基準未達のページがあれば、
+該当ページのみ追加パスを実行する。
+
+**パス2をスキップしてはならない。** パス1の骨格（30〜40行）をそのまま
+最終出力とすることは品質基準違反である。
+
 ### Step 4: index.md の生成
 
 `references/index_template.md` の **テーブル形式を厳守** して生成する。
