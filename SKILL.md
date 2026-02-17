@@ -1,369 +1,369 @@
 ---
-name: deepwiki-creator
-description: |
-  ローカルのコードリポジトリを分析し、構造化されたWikiドキュメント（Markdown + Mermaid図）を
-  自動生成するスキル。「Wikiを作って」「リポジトリのドキュメントを生成して」「コードベースの
-  Wiki化」などのリクエストに対して使用する。対象リポジトリのパスまたはカレントディレクトリを
-  指定して実行する。
+name: deepwiki
+description: コードベースを解析し、DeepWiki のような包括的なWikiドキュメントを自動生成するスキル。ユーザーが「Wikiを作成して」「コードベースをドキュメント化して」「リポジトリの解析ドキュメントを生成して」「コードの全体像をまとめて」等と依頼した場合に使用する。ローカルコードベースまたはGitHubリポジトリを対象に、アーキテクチャ図（Mermaid）付きの構造化されたドキュメントを生成する。
 ---
 
-# DeepWiki Creator
+# DeepWiki - コードベースWiki自動生成スキル
 
-ローカルのコードベースを深く分析し、以下を自動生成するスキルです：
+リポジトリを解析し、DeepWiki 風の包括的なWikiドキュメントを Markdown で生成する。
 
-1. **Wiki構造（_meta.json）** - リポジトリ全体の論理的なセクション・ページ構成
-2. **各ページのMarkdownドキュメント** - コードの実装に基づく詳細な解説とコードスニペット
-3. **Mermaid図** - アーキテクチャ図、データフロー図、シーケンス図、クラス図
-4. **ナビゲーション用 index.md** - 全ページのリンク付き目次
+> **品質目標**: 新しい開発者がこの Wiki を読むだけでプロジェクトの全体像を把握し、すぐに開発を開始できること。また、既存機能を拡張・修正する際に、関連モジュールの設計意図・依存関係・データフローをこの Wiki から把握して方針を検討できること。そのために、十分な網羅性・技術的深度・ソースコード参照密度を確保する。
 
-## 前提条件
+> **言語ルール**: ページタイトルは**英語**で記述する。本文は**日本語**で記述する。ただし以下は英語のまま維持する：
+> - ページタイトル・ファイル名
+> - コード内のクラス名・関数名・変数名
+> - ファイルパス、コマンド
+> - Mermaid ダイアグラムのノードラベル（実際のコード要素名）
+> - Sources 行のファイル参照
 
-- 対象リポジトリがローカルに存在すること
-- シェルコマンド（`find`, `wc`, `cat`, `head`, `grep`）が利用可能であること
+各フェーズのテンプレートと具体例は [references/prompts.md](references/prompts.md) を参照。出力フォーマットの仕様は [references/output-format.md](references/output-format.md) を参照。DeepWiki の実出力分析は [references/deepwiki-analysis.md](references/deepwiki-analysis.md) を参照。
 
-## 品質目標
+---
 
-**「このWikiを読めば、コードを直接読まなくてもモジュールの設計意図と実装方針を理解でき、
-修正箇所の目星がつく」** レベルのドキュメントを生成する。
+## Phase 1: 構造分析
 
-以下は品質不足とみなす：
-- 「〇〇クラスは△△を管理します」だけで終わっている（What止まり。HowとWhyが欠如）
-- コードスニペットが1つもない（具体性がない）
-- 正常系の説明のみでエラーハンドリングに触れていない（実用性がない）
-- 複数ページで同じコンポーネントを説明している（構造設計の失敗）
-- 60行未満のページがある（薄すぎる）
-- 設計判断の理由（なぜその方式を選んだか）に触れていない（Whyの欠如）
-- モジュールを横断する処理フローの記述がどこにもない
-- **Comprehensiveモードでページ数が15未満**（カバレッジ不足）
+対象コードベースの全体像を把握する。**ドキュメントが不十分なプライベートリポジトリでも、ソースコードから正確にアーキテクチャを理解できるようにする。**
 
-## アーキテクチャ：サブエージェント委譲
+### Step 1a: メタデータ収集
 
-**v4ではStep 3（ページ生成）をサブエージェントに委譲する。**
+1. `scripts/collect_structure.sh <対象パス>` を実行し、ディレクトリツリー・ファイル統計・エクスポート情報を取得
+2. 以下のファイルを優先的に読み取る（**存在するものだけ**。プライベートリポジトリでは無い場合が多い）：
+   - `README.md` / `README`
+   - `package.json` / `Cargo.toml` / `pyproject.toml` / `go.mod` 等（パッケージ定義）
+   - `tsconfig.json` / `.eslintrc` / `Makefile` 等（ビルド設定）
+   - `docker-compose.yml` / `Dockerfile`
+   - `.github/workflows/` 下のCI設定
+3. 技術スタック、フレームワーク、主要な依存関係を特定する
+4. エントリーポイント（`main.ts`, `index.ts`, `app.py` 等）を特定する
+5. **モノレポの場合**: 各パッケージ/ワークスペースの `package.json` 等を読み、パッケージ間の依存関係を把握する
 
-メインエージェントのコンテキストで全ページを逐次生成すると、後半のページほど
-コンテキストが枯渇して品質が劣化する。各ページの生成を独立したサブエージェントに
-委譲することで、全ページが同等の品質で生成される。
+### Step 1b: ソースコード走査
+
+> [!IMPORTANT]
+> **README や docs が不十分でも、このステップでアーキテクチャの全体像を把握する。** 「浅く広く」走査し、各モジュールの責務・依存関係・複雑さを明らかにする。ファイル全体の深読みは Phase 3a で行うため、ここでは**アウトラインと構造の把握**に集中する。
+
+#### 1. エントリーポイントからの import グラフ構築
+
+エントリーポイントを `view_file` で読み、import されているモジュールを**最大2階層**辿る。
+
+- エントリーポイント → 直接 import しているモジュール → 主要な間接依存
+- 各モジュールの import 文を記録し、依存の方向性を把握する
+- **循環依存があれば記録する**（Wiki内で言及すべき重要情報）
+
+#### 2. 主要ファイルのアウトライン取得
+
+`collect_structure.sh` のファイルサイズ Top15-20 に対して `view_file_outline` を実行する。
+
+- クラス定義・関数シグネチャ・インターフェースの一覧を把握する（**ファイル全体は読まない**）
+- 判断基準：クラス5個以上 or メソッド20個以上のモジュール → **複数ページに分割を検討**
+- インターフェース / 抽象クラスが多い場合 → 設計パターンの存在を示唆
+
+#### 3. アーキテクチャパターンの検出
+
+`grep_search` で以下のパターンキーワードを検索する：
+
+| パターン | 検索キーワード例 |
+| :--- | :--- |
+| Factory | `Factory`, `create` + クラス生成 |
+| Strategy | `Strategy`, インターフェース + 複数実装 |
+| Observer / Event | `EventEmitter`, `on(`, `emit(`, `subscribe` |
+| Middleware / Pipeline | `middleware`, `use(`, `pipe`, `pipeline` |
+| Repository | `Repository`, データアクセス層 |
+| DI / IoC | `inject`, `provider`, `container`, `@Injectable` |
+| State Machine | `state` + `transition`, `StateMachine` |
+
+#### 4. アーキテクチャ概要メモの生成
+
+Step 1b の結果を以下の形式で整理する。**これが Phase 2 の構造設計の主要な入力になる。**
+
+```text
+## アーキテクチャ概要メモ
+
+### モジュール構成
+- [モジュールA]: [責務の1行説明] (主要クラス: X, Y, Z / 複雑度: 高)
+- [モジュールB]: [責務の1行説明] (主要クラス: P, Q / 複雑度: 中)
+  - サブモジュール: [名前] (主要クラス: R)
+
+### 依存関係グラフ
+エントリーポイント → ModuleA → ModuleB
+                   → ModuleC → ModuleD
+                              → ModuleB (共有依存)
+
+### 検出された設計パターン
+- Factory Pattern: ToolFactory (tools/factory.ts)
+- Observer Pattern: EventBus (core/events.ts)
+- Middleware: Pipeline (core/pipeline.ts)
+
+### 複雑なモジュール（ページ分割候補）
+- tools/ : クラス8個、メソッド45個 → 2-3ページに分割推奨
+- core/state/ : StateMachine + 5つの State → 専用ページ推奨
+
+### 主要機能（ユーザー視点）
+- [機能A]: [何ができるか] (関連モジュール: X, Y)
+- [機能B]: [何ができるか] (関連モジュール: Z)
+```
+
+---
+
+## Phase 2: Wiki 構造設計
+
+**Step 1a のメタデータと Step 1b のアーキテクチャ概要メモを基に**、コードベースの規模と複雑さに応じた Wiki 構造を設計する。
+
+### 規模ガイドライン
+
+| 規模 | ファイル数目安 | セクション数 | 総ページ数 |
+| :--- | :--- | :--- | :--- |
+| 小規模 | < 30 | 3-4 | 8-15 |
+| 中規模 | 30-200 | 4-6 | 15-30 |
+| 大規模 | > 200 | 6-8+ | **30-50** |
+
+> **重要**: 大規模リポジトリで 15 ページ以下は少なすぎる。Core Systems だけで 5-12 ページ必要な場合がある。**ページ数を削るより増やす方向で設計する。**
+
+### セクション構成テンプレート（6セクション基本形）
+
+すべてのセクションを検討し、対象コードベースに該当しないものだけ省略する。**該当するのに省略してはならない。**
+
+> [!CAUTION]
+> **Getting Started** と **User Guide** は省略してはならない。CLI ツールには使い方がある。ライブラリにはインストール手順がある。これらのセクションが欠けた Wiki は不合格とする。
 
 ```
-メインエージェント:
-  Step 0: パラメータ確認
-  Step 1: ファイル収集
-  Step 1.5: コード偵察
-  Step 2: Wiki構造設計 + 一貫性ガイド生成
-  Step 4: index.md 生成
-  Step 5: 検証
+1. Overview（概要）
+   1.1 Architecture Overview（アーキテクチャ概要）
+   1.2 Package/Project Structure（プロジェクト構成）
 
-サブエージェント（agents/page-writer.md — ページごとに起動）:
-  Step 3: 1ページのMarkdown生成
-  入力: ページ定義 + relevant_files パス + 一貫性ガイド
-  出力: 完成したMarkdownファイル（ファイルに書き出し）
+2. Getting Started（はじめに）
+   2.1 Installation and Setup（インストール・セットアップ）
+   2.2 Authentication / Configuration（認証・設定）
+   2.3 Basic Configuration（基本設定）
+
+3. User Guide（ユーザーガイド）  ← 省略しがちだが重要
+   3.x [ユーザー向け機能ごとにページ]
+   例: Interactive Mode, Commands, Built-in Tools, Plugin Usage 等
+
+4. Core Systems（コアシステム）
+   4.x [内部アーキテクチャのモジュールごとにページ]
+   例: Application Lifecycle, API Client, Tool System, State Management,
+       Context Management, Streaming Pipeline 等
+   ※ 1つのモジュールが複雑な場合は複数ページに分割する
+
+5. Advanced Topics（応用トピック）
+   5.x [拡張性、セキュリティ、可観測性等]
+   例: Extension System, Security, Telemetry, Hooks, Plugin API 等
+
+6. Development（開発）
+   6.1 Development Setup（開発環境構築）
+   6.2 Build System（ビルドシステム）
+   6.3 Testing Infrastructure（テスト基盤）
 ```
 
-**サブエージェントが利用できない場合は、メインエージェントが直接 Step 3 を実行してよい。**
-その場合、ページを1つ生成するたびに前のページの relevant_files 内容を
-コンテキストから解放し、品質の均一化に努める。
+### ページ定義に含める情報
 
-## ワークフロー
+各ページには以下を割り当てる：
+- **id**: `"1.1"` 形式の番号
+- **title**: ページタイトル
+- **filePaths**: 関連するソースファイルのパス一覧（**5-15ファイル程度を目安に列挙**）
+- **importance**: `high` / `medium` / `low`
+- **relatedPages**: 関連ページの id 一覧
+- **keyClasses**: このページで解説すべき主要なクラス・関数名（わかる範囲で）
 
-### Step 0: パラメータ確認
+> **この構造を JSON 形式でアウトラインとして生成し、必ずユーザーに確認を取る。確認なしに Phase 3 に進まない。**
 
-ユーザーに以下を確認する（未指定の場合はデフォルトを使用）：
+---
 
-| パラメータ | デフォルト | 選択肢 |
-|-----------|-----------|--------|
-| 対象リポジトリ | カレントディレクトリ | 任意のローカルパス |
-| 出力先 | `./wiki-output` | 任意のパス |
-| 出力言語 | `en` | `ja`, `zh`, `ko`, `es` 等 |
-| 生成モード | `comprehensive` | `concise` |
-| 対象ディレクトリ制限 | なし（全体） | カンマ区切りで指定 |
-| Mermaid図生成 | 有効 | 無効にも可 |
+## Phase 3: ページ単位の分析・生成ループ
 
-### Step 1: ファイル収集とフィルタリング
+> **核心ルール: 全ページを一括生成しない。1ページずつ「分析→生成→出力」のループを回す。**
+
+importance の順に処理する: `high` → `medium` → `low`
+
+### 各ページの処理手順
+
+#### Step 3a: ソースコード分析（最重要フェーズ）
+
+> [!IMPORTANT]
+> **このフェーズの品質がページ全体の品質を決定する。** ソースコードを十分に読み、分析メモを充実させること。手を抜いてファイル名だけで推測しない。
+
+1. ページの `filePaths` に記載された**全ファイル**を `view_file` で読む
+2. **`view_file` で読んだ直後に、参照した行範囲を必ずメモする**（例: `config.ts: L1-L80 読了`）
+3. 主要なクラス・関数を `view_code_item` で詳細確認する
+4. **`grep_search` でクラス名・関数名の呼び出し元・参照先を必ず追跡する**（省略禁止）
+5. **分析メモを以下の形式で整理する**：
+
+```
+### ファイル: [パス] (L1-L行数 読了)
+
+■ スニペット候補（5-10個をリストアップ — ここがページ品質の核）
+  - [候補1] クラス定義: [クラス名] (L開始-L終了) — [なぜこれが重要か]
+  - [候補2] インターフェース: [型名] (L開始-L終了) — [なぜこれが重要か]
+  - [候補3] メソッド: [メソッド名] (L開始-L終了) — [何をするか]
+  - [候補4] 設定オブジェクト: [名前] (L開始-L終了) — [設定項目一覧]
+  - [候補5] ファクトリ/生成ロジック: [名前] (L開始-L終了) — [設計の核心]
+
+■ 継承・インターフェース
+  - [クラス名] extends [親クラス] (L行番号)
+  - [クラス名] implements [インターフェース] (L行番号)
+
+■ 設計パターン
+  - [パターン名]: [該当箇所と理由] (L行番号)
+  例: Factory Pattern: ToolFactory.create() (L45-L62) — ツールの種類ごとに異なるインスタンスを生成
+
+■ テーブル化すべきデータ
+  - 列挙型: [Enum名] (L行番号) — テーブルにまとめる
+  - 定数一覧: [定数グループ] (L行番号) — テーブルにまとめる
+  - 優先度/階層: [対象] — テーブルにまとめる
+
+■ データフロー
+  - 入力 → 処理 → 出力
+
+■ 依存関係（import）
+  - [インポート元]: [使用クラス/関数]
+```
+
+> **スニペット候補が 5 個未満の場合は、追加のファイルを `view_file` で読む。**
+
+> **コンテキスト制約に注意**: ページに関連するファイルだけを読む。前のページで読んだファイルの内容はコンテキストから消えている可能性がある。必要なら再度読む。
+
+#### Step 3b: ページ生成
+
+分析メモを基に Markdown ページを生成する。**以下の品質基準を全て満たすこと。**
+
+> [!CAUTION]
+> **生成前に分析メモのスニペット候補リストを確認する。** 5個以上のスニペット候補がリストにない場合は Step 3a に戻る。
+
+#### Step 3c: ファイル出力
+
+生成したページを `write_to_file` で即座にファイルに書き出す。**次のページに進む前に必ず書き出す。**
+
+#### Step 3d: 品質検証（バリデーションループ）
+
+生成した各ページに対してバリデーションスクリプトを実行する：
 
 ```bash
-bash <skill_path>/scripts/collect_files.sh <REPO_PATH> [INCLUDE_DIRS]
+python3 scripts/validate_page.py <生成したファイル.md> --importance <high|medium|low>
 ```
 
-出力：
-- `/tmp/deepwiki_files.txt` - フィルタ済みファイル一覧
-- `/tmp/deepwiki_tree.txt` - ツリー形式のファイル構造
-- `/tmp/deepwiki_readme.md` - README.mdの内容
+1. **Grade B 以上 (75%+)**: 合格。次のページに進む
+2. **Grade C (60-74%)**: 指摘された `❌` 項目を修正して再検証。最大2回まで修正ループ
+3. **Grade D 以下 (<60%)**: 分析不足。Step 3a に戻ってソースコードを追加で読み、再生成
 
-**注意**: `file_filters.json` の `max_file_size_kb`（デフォルト100KB）を超えるファイルはスキップされる。
-大規模なソースファイルが除外される場合は、この値を調整すること。
+バリデーターが検出する主な項目：
+- 語数不足（importance 別基準: high 1200語+, medium 600語+）
+- Mermaid ダイアグラム不足 / **種類の多様性不足**
+- **コードスニペット欠落**（最多の失敗原因, high は 5個以上必須）
+- **Sources 行に行番号がない / 行番号が不正確（L1-L1000 は不可）**
+- **スニペットに出典コメントがない**
+- **テーブルがない（high は 1個以上必須）**
+- 関連ページリンクの欠落
 
-### Step 1.5: コード偵察（Code Reconnaissance）
+> **全ページ完了後にも、ディレクトリ全体に対してバリデーションを実行する:**
+> ```bash
+> python3 scripts/validate_page.py <wiki出力ディレクトリ> --scale large
+> ```
+> `--scale` に `small` / `medium` / `large` を指定する（ページ数から自動推定も可）。
+> 出力には以下が含まれる：
+> - 各ページの品質スコアとグレード
+> - **Wiki構造チェック**（総ページ数・セクション網羅性・配分比率）
+> - **🤖 AIモデル向け修正指示**（Grade C以下のページに対する具体的な改善手順）
+>
+> **修正指示が出た場合は、優先度順に対応する。** 構造レベルの問題（セクション欠落・ページ数不足）を先に解消し、次にページ単位の品質改善を行う。
+> **Grade B 以上が 80% を占めることを目標にする。**
 
-**省略してはならない。Wiki品質の最大の決定要因。**
+### ページ品質基準（必須）
 
-```bash
-bash <skill_path>/scripts/recon_code.sh <REPO_PATH> [INCLUDE_DIRS]
+すべてのページで以下を満たすこと：
+
+1. **概要段落**: ページの目的とスコープを 2-3 文で説明
+2. **ソース参照（Sources行）**: **各セクションの末尾に必ず配置**
+   - 形式: `**Sources:** [ファイル名:L行番号-L行番号](file:///絶対パス/ファイル名#L開始-L終了)`
+   - 1セクションあたり **1-5個** のソース参照
+   - **行番号は実際に読んだ範囲を正確に記載**する（200行以内の範囲で）
+   - **ページ末尾に総合 Sources 行を配置しない**（各セクション内の Sources で十分。末尾にまとめると L1-L500 のような広範囲になり、バリデーション減点の原因になる）
+   - ✅ 良い例: `**Sources:** [local-executor.ts:L45-L120](file:///path/to/local-executor.ts#L45-L120), [agent-scheduler.ts:L10-L35](file:///path/to/agent-scheduler.ts#L10-L35)`
+   - ❌ 悪い例: `Sources: [local-executor.ts](file:///path/to/local-executor.ts)` ← 行番号なし
+   - ❌ 悪い例: `Sources: [local-executor.ts:L1-L1000]` ← 範囲が広すぎて無意味
+3. **Mermaid ダイアグラム**: 各ページに最低1つ（importance: high は **2-3個、2種類以上**）
+   - **実際のクラス名・関数名をノードラベルに使用する**（汎用名禁止）
+   - 例: `ToolRegistry` `CoreToolScheduler` `PolicyEngine`（× `Registry` `Scheduler` `Engine`）
+   - **種類を使い分ける**: `flowchart` + `sequenceDiagram` / `flowchart` + `stateDiagram` 等
+4. **コードスニペット（最重要）**: **実際のソースコードからの引用のみ許可**（疑似コード禁止）
+   - `view_file` で読んだソースコードの中から、**そのページのトピックを象徴する部分を抜粋**する
+   - コメントで出典を示す: `// packages/core/src/tools/tools.ts:L332-L454`
+   - 例: クラス定義、主要メソッドのシグネチャ、設定オブジェクト、型定義、ファクトリロジック等
+   - **importance: high は 5-8 個、medium は 3-5 個が必須**
+   - **スニペットが不足するページはバリデーション不合格になる**
+5. **テーブル活用**: 列挙型・定数一覧・カテゴリ分類・優先度リスト等はテーブルで整理する
+   - importance: high は最低1つのテーブルを含む
+6. **設計パターン明示**: コード内の設計パターン（Factory, Proxy, Strategy, Observer 等）を見出しレベルで言語化
+7. **関連ページへのリンク**: フッターに関連ページリストを配置
+
+### importance 別の最低要件
+
+| importance | 語数 | ダイアグラム | Mermaid種類 | コードスニペット | Sources 行 | テーブル |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| high | **1200語以上** | 2-3個 | **2種類以上** | **5-8個** | 全セクション | **1個以上** |
+| medium | **600-1000語** | 1-2個 | 1種類以上 | **3-5個** | 全セクション | 推奨 |
+| low | 300-500語 | 1個 | 1種類以上 | 1-2個 | 主要セクション | 任意 |
+
+---
+
+## Phase 4: 結合・整形
+
+1. **インデックスページ** (`index.md`) を作成：
+   - プロジェクト名、説明、技術スタック概要
+   - 全セクション・ページへのリンク付き目次
+   - 全体アーキテクチャの Mermaid ダイアグラム
+2. 全ページ間の相互リンクを確認・修正
+3. ページ番号の一貫性を確認
+
+---
+
+## Phase 5: 出力
+
+デフォルトの出力先: `<対象プロジェクト>/docs/wiki/`
+
+出力構造：
+```
+docs/wiki/
+├── index.md                    # メインインデックス
+├── 1-overview.md               # セクション概要ページ
+├── 1.1-architecture-overview.md
+├── 1.2-project-structure.md
+├── 2-getting-started.md
+├── 2.1-installation-and-setup.md
+├── ...
+├── 4-core-systems.md
+├── 4.1-application-lifecycle.md
+├── 4.2-api-client-architecture.md
+├── ...
+└── 6.3-testing-infrastructure.md
 ```
 
-出力：`/tmp/deepwiki_recon.md`
+ファイル名規則: `<番号>-<kebab-case-title>.md`
 
-偵察レポートの構成：
-1. **エントリーポイントと設定ファイル** - package.json, pyproject.toml 等の主要フィールド
-2. **Export / Public API 一覧** - 各ソースファイルのクラス・関数シグネチャ
-3. **拡張機構の検出** - プラグイン、スキル、フック、ルーティング、デコレータ等
-4. **モジュール間依存関係** - import/from による内部依存マップ
-5. **ディレクトリ別サマリー** - ファイル数と主要拡張子
+---
 
-### Step 2: Wiki構造の設計
+## GitHubリポジトリの場合
 
-以下の **3つ全て** を入力として読み込む：
-1. `/tmp/deepwiki_tree.txt`（ファイル構造）
-2. `/tmp/deepwiki_readme.md`（README）
-3. `/tmp/deepwiki_recon.md`（コード偵察結果）
+対象がGitHubリポジトリURLの場合：
+1. `git clone --depth 1 <URL> /tmp/deepwiki-<repo-name>` で shallow clone
+2. 上記の Phase 1-5 を実行
+3. 成果物を指定の出力先にコピー
+4. クローンした一時ディレクトリを削除
 
-`references/structure_prompt.md` のガイドラインに従ってWiki構造のJSONを生成する。
+---
 
-**出力は有効なJSON** であること。コメントやトレーリングカンマは禁止。
-ファイルパスは偵察結果で確認済みの実在パスのみ。
+## よくある失敗パターンと対策
 
-#### 出力ディレクトリ構造
-
-```
-{OUTPUT_DIR}/
-├── _meta.json                    # Wiki構造定義
-├── _consistency_guide.md         # 用語辞書・クロスリファレンス
-├── index.md                      # 目次（テーブル形式）
-└── sections/
-    ├── {section_id}/
-    │   ├── {page_id}.md
-    │   └── {page_id}.md
-    └── {section_id}/
-        └── {page_id}.md
-```
-
-#### Step 2.5: 一貫性ガイドの生成
-
-_meta.json 確定後、サブエージェントに渡す **一貫性ガイド** を生成する。
-これは `<OUTPUT_DIR>/_consistency_guide.md` に保存する。
-
-**生成アルゴリズム：**
-1. **用語辞書**: 偵察結果のexport名、README内のキーワード、設定ファイルの項目名から
-   プロジェクト固有の用語を抽出し、正式表記と説明を定義する
-2. **クロスリファレンス**: `_meta.json` の `related_pages` フィールドと
-   `relevant_files` の共有関係から、ページ間の参照パターンを決定する
-3. **共通ルール**: 出力言語に応じたMermaidラベルのクォートルール等を記載する
-
-一貫性ガイドの内容：
-
-```markdown
-# 一貫性ガイド（Wiki内部用）
-
-## 用語辞書
-| 用語 | 正式表記 | 説明 |
-|------|---------|------|
-| ツール呼び出し | Tool Call | モデルがツールの実行を要求すること |
-| ...  | ...     | ... |
-
-## ページ間クロスリファレンス
-| ページID | 主担当トピック | 他ページで言及する際の書き方 |
-|---------|--------------|--------------------------|
-| chat-session | GeminiChat, Turn | 「詳細は [チャットセッション管理](../core/chat-session.md) を参照」 |
-| ...     | ...           | ...                       |
-
-## 共通ルール
-- コードスニペットは {language} タグ必須
-- 日本語Mermaidラベルはクォート必須
-- 他ページの担当コンポーネントは説明せず、リンクで参照する
-```
-
-#### 構造設計時の必須チェック
-
-**1. カバレッジ検証**
-偵察結果の export と、全ページの relevant_files を突合する。
-
-**2. 拡張機構の検出**
-偵察結果セクション3（拡張機構）に検出があれば、解説ページを **必ず** 含める。
-加えて、偵察では検出しきれない拡張ポイント（コード内で外部ファイルをロードして
-機能を追加する仕組み）がないか、README等から確認する。
-
-**3. エンドツーエンドフローページの必須化（Comprehensiveモード）**
-「ユーザー入力から最終出力まで」のモジュール横断フローを解説するページを
-**少なくとも1つ** 含めること（例: `end-to-end-flow`, `request-lifecycle` 等）。
-このページは特定のモジュールに属さず、複数のコンポーネントがどう連携するかを示す。
-
-**4. 重複検証**
-**5. 粒度検証**
-**6. JSON構文チェック**
-
-### Step 3: ページコンテンツの生成（サブエージェント委譲）
-
-_meta.json の各ページに対して、**`page-writer` サブエージェントを起動**する。
-
-**サブエージェントの呼び出し方：**
-
-各ページについて以下のプロンプトで page-writer エージェントに委譲する：
-
-```
-以下のWikiページを生成してください。
-
-## ページ定義
-{_meta.json の当該ページエントリをJSON形式で貼り付け}
-
-## パラメータ
-- repo_path: {REPO_PATH}
-- output_path: {OUTPUT_DIR}/sections/{section.id}/{page.id}.md
-- consistency_guide_path: {OUTPUT_DIR}/_consistency_guide.md
-- page_prompt_path: {SKILL_PATH}/references/page_prompt.md
-- language: {LANGUAGE}
-```
-
-**relevant_files の上限：**
-- 通常ページ: 最大8ファイル（`file_filters.json` の `max_files_per_page`）
-- エンドツーエンドフローページ: 最大10ファイル（横断的に指定可）
-
-**委譲の順序：**
-1. まずエンドツーエンドフローページを生成（他ページからの参照先になるため）
-2. importance: high のページを生成
-3. importance: medium, low のページを生成
-
-**サブエージェントが利用できない環境の場合（2パス戦略）：**
-
-メインエージェントが直接ページを生成する。ただし、コンテキスト枯渇による
-ページ数削減を防ぐため、以下の **2パス戦略** で実行する。
-
-**パス1（骨格生成）**: 全ページについて、ページファイルを作成し **骨格のみ** を書く。
-骨格は以下の要素のみ（各ページ30〜40行程度）：
-- タイトルと概要（2〜3文）
-- Mermaid図（1つ）
-- 主要コンポーネント名と責務の一覧（詳細なしで名前と1行説明のみ）
-- 設計判断のキーワード（後で肉付けするための見出しレベル）
-- 生成元ファイル一覧
-
-**パス2（肉付け）**: 各ページについて relevant_files を `cat` で読み込み、
-骨格を60行以上の完全なページに仕上げる。コードスニペット、メソッドシグネチャ、
-エラーハンドリング詳細、設計判断のWhyを追記する。
-
-この2パス方式により：
-- パス1で全ページの存在が保証される（カバレッジ確保）
-- パス2で各ページのコードを読みながら深掘りできる（品質確保）
-- コンテキスト枯渇時でもパス1の骨格がベースラインとして残る
-
-**パス間の品質ゲート（必須）：**
-
-パス1完了後、パス2に進む前に以下を検証する。
-**1つでも不合格の項目があれば、パス2で該当ページを優先的に肉付けすること。**
-
-```bash
-# 全ページの行数チェック
-for md_file in $(find "$OUTPUT_DIR/sections" -name "*.md" -type f); do
-  line_count=$(wc -l < "$md_file" | xargs)
-  code_count=$(grep -c '^```[a-z]' "$md_file" 2>/dev/null || echo 0)
-  mermaid_count=$(grep -c '```mermaid' "$md_file" 2>/dev/null || echo 0)
-  snippet_count=$((code_count - mermaid_count))
-  echo "$(basename "$md_file"): ${line_count}行, コード=${snippet_count}, 図=${mermaid_count}"
-done
-```
-
-パス2では、上記の結果で **60行未満 / コードスニペット0 / Mermaid図0** の
-ページを最優先で肉付けする。パス2完了後もなお基準未達のページがあれば、
-該当ページのみ追加パスを実行する。
-
-**パス2をスキップしてはならない。** パス1の骨格（30〜40行）をそのまま
-最終出力とすることは品質基準違反である。
-
-### Step 4: index.md の生成
-
-`references/index_template.md` の **テーブル形式を厳守** して生成する。
-
-### Step 5: 検証と報告
-
-```bash
-bash <skill_path>/scripts/validate_wiki.sh <OUTPUT_DIR>
-```
-
-## Mermaid図 生成ルール
-
-1. **ノードIDにスペースや特殊文字を使わない**
-2. **図の種類の選択**
-   - アーキテクチャ全体 → `graph TD`
-   - API/処理フロー → `sequenceDiagram`
-   - クラス関係 → `classDiagram`
-   - データパイプライン → `flowchart LR`
-   - データモデル → `erDiagram`
-3. **1つの図は最大15〜20ノードまで**
-4. **日本語ラベルはクォートで囲む**: `A["日本語ラベル"]`
-5. **sequenceDiagram の participant 名にスペースを使わない**
-6. **矢印のラベルにデータの内容を書く**
-   - 良い: `A ->>|"Prompt + Context"| B`、`B -->>|"StreamEvent(TextDelta)"| A`
-   - 悪い: `A ->> B`（ラベルなし）
-7. **条件分岐（alt/opt）を活用する**
-   - 正常系だけでなく、エラー時・拒否時のフローも図に含める
-
-## アンチパターン集
-
-### ❌ What止まり
-```
-GeminiChat クラスは、チャットセッション全体を管理します。
-```
-
-### ✅ How + Why
-```
-GeminiChat は Gemini API とのストリーミング通信セッションを管理する。
-sendMessageStream() でリクエストを送信すると、StreamEvent として非同期に返される。
-ToolCall を受信した場合、再帰的にツール実行→結果送信のループに入る。
-
-この設計により、モデルが複数のツールを連鎖的に呼び出す複雑なタスク
-（例: ファイルを読んで修正して書き戻す）を、単一のセッション内で完結させられる。
-```
-
-### ❌ 正常系のみ
-```
-WriteFileTool は指定パスにファイルを書き込みます。
-```
-
-### ✅ 異常系 + リカバリー
-```
-WriteFileTool は指定パスにファイルを書き込む。書き込み前に validatePathAccess() で
-ワークスペース外アクセスを拒否する。LLM が生成したコードにプレースホルダーが
-残存している場合は ensureCorrectEdit() で自動修正を試みる。
-修正不可の場合はユーザーにDiffを提示し、手動修正を促す。
-```
-
-### ❌ 設計判断に触れない
-```
-ToolRegistryはツールを一元管理するレジストリです。
-```
-
-### ✅ 設計判断（Why）に言及
-```
-ToolRegistryはツールを一元管理する。定義（Schema）と実行（Invocation）を分離する
-Declarative Tool Patternを採用しており、これにより「実行前にユーザーに確認を求める」
-「実行せずにDryRunで影響範囲を表示する」といった操作が、ツール実装を変更せずに
-制御レイヤーで実現できる。
-```
-
-### ❌ 図の矢印にラベルがない
-```mermaid
-sequenceDiagram
-    CLI ->> Core: message
-    Core ->> API: request
-```
-
-### ✅ データの中身が書かれた図
-```mermaid
-sequenceDiagram
-    CLI ->>+ Core: sendMessageStream(userInput)
-    Core ->>+ API: generateContentStream(context + prompt)
-    API -->>- Core: StreamChunk(TextDelta / ToolCall)
-    alt ToolCall received
-        Core ->> Tool: execute(params)
-        Tool -->> Core: ToolResult
-        Core ->> API: generateContentStream(toolResult)
-    end
-    Core -->>- CLI: GeminiEvent(Content / ToolCallRequest)
-```
-
-### ❌ _meta.json にコメント
-```json
-"relevant_files": ["src/index.ts" ] // Assuming this exists
-```
-
-### ✅ 偵察結果で確認済みパスのみ
-```json
-"relevant_files": ["packages/cli/src/gemini.tsx"]
-```
+| 失敗パターン | 対策 |
+| :--- | :--- |
+| ページ数が少なすぎる（10ページ以下） | Phase 2 で規模ガイドラインを再確認。Core Systems は 1 モジュール = 1 ページ |
+| ソース参照がない / 行番号がない | Phase 3a で **view_file 直後に行番号をメモ**し、3b で Sources 行に転記 |
+| **行番号が L1-L1000 のように広範囲** | **実際に参照した関数・クラスの行範囲（200行以内）を正確に記載** |
+| ダイアグラムが汎用的 | 実際のクラス名・関数名をノードラベルに使う |
+| **ダイアグラムが graph TD のみ** | **sequenceDiagram, stateDiagram, classDiagram も積極的に使い分ける** |
+| コードが疑似コード | 実際のソースから `view_file` で抜粋する |
+| **コードスニペットが 1-2 個しかない** | **Step 3a でスニペット候補を 5-10 個リスト化してから 3b に進む** |
+| 全ページを一気に生成してしまう | Step 3a→3b→3c のループを厳守 |
+| User Guide セクションが欠落 | Phase 2 のテンプレートで必ず検討 |
+| **テーブルが全くない** | **列挙型、定数一覧、カテゴリ分類をテーブルで整理する** |
+| **設計パターンに言及がない** | **Factory, Proxy, Strategy 等のパターンを見出しで明示する** |
