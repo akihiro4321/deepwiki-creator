@@ -104,7 +104,7 @@ graph TD
 
 ---
 
-## 個別ページの構造（Claude 品質標準）
+## 個別ページの構造
 
 importance: high のページを基準とした模範テンプレート:
 
@@ -242,7 +242,7 @@ handleError(error: ToolError): ToolResult {
 
 ---
 
-## ページ品質の最低要件早見表（Claude 品質標準）
+## ページ品質の最低要件早見表
 
 | importance | 語数 | Mermaid | Mermaid 種類 | コードスニペット | Sources 行 | テーブル | セクション数 |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
