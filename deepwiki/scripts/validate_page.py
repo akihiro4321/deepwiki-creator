@@ -778,7 +778,7 @@ def generate_ai_corrections(results: list, ws: Optional[WikiStructureResult] = N
                                   f"        内容: {sec_desc}\n"
                                   f"        ファイル命名例: {sec_num}.1-{sec_name.lower().replace(' ', '-')}.md\n"
                                   f"        作成手順: Phase 3a（ソースコード分析）→ Phase 3b（ページ生成）の順で進め、\n"
-                                  f"        関連するソースファイルを view_file で読み、スニペット候補を5個以上リストアップしてから書き始めてください。",
+                                  f"        関連するソースファイルをファイル閲覧ツール等で読み、スニペット候補を5個以上リストアップしてから書き始めてください。",
                     })
                     priority += 1
 
@@ -824,7 +824,7 @@ def generate_ai_corrections(results: list, ws: Optional[WikiStructureResult] = N
         for issue in critical_issues:
             if 'コードスニペット' in issue:
                 action_parts.append(
-                    "コードスニペットを追加してください。対象ファイルを view_file で読み直し、\n"
+                    "コードスニペットを追加してください。対象ファイルをファイル閲覧ツール等で読み直し、\n"
                     "          主要クラスの定義、インターフェース、重要メソッドのシグネチャを抜粋してください。\n"
                     "          各スニペットの先頭に `// path/to/file.ts:L行番号` の出典コメントを付けてください。"
                 )
@@ -843,7 +843,7 @@ def generate_ai_corrections(results: list, ws: Optional[WikiStructureResult] = N
             elif 'Sources' in issue:
                 action_parts.append(
                     "Sources行を各セクション末尾に追加してください。形式: **Sources:** [file.ts:L100-L200](file:///path#L100-L200)\n"
-                    "          行番号は view_file で実際に読んだ範囲を200行以内で指定してください。"
+                    "          行番号は実際にファイル閲覧ツール等で読んだ範囲を200行以内で指定してください。"
                 )
             elif 'テーブル' in issue:
                 action_parts.append(

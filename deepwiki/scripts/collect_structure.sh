@@ -134,6 +134,17 @@ eval "find \"$TARGET_DIR\" -maxdepth 4 \( $FIND_EXCLUDES -type f \( \
   sed "s|^$TARGET_DIR/||" | sort || true
 echo '```'
 
+# --- (新規) README/ドキュメントサマリー抽出 ---
+echo ""
+echo "## 主要ドキュメントの内容抜粋"
+echo '```'
+eval "find \"$TARGET_DIR\" -maxdepth 2 \( -name 'README.md' -o -name 'README' \) -print" 2>/dev/null | head -3 | while read -r file; do
+  echo "--- $file ---"
+  head -n 20 "$file" | grep -v '^\s*$' || true
+  echo "..."
+done
+echo '```'
+
 # --- セクション 4: ファイルサイズランキング ---
 echo ""
 echo "## ファイルサイズ Top 20（大きいファイル=重要度が高い可能性）"
@@ -160,8 +171,8 @@ eval "find \"$TARGET_DIR\" \( $FIND_EXCLUDES -type f \( \
   \) ! -name '*.test.*' ! -name '*.spec.*' ! -name '*.d.ts' \
   -print \)" 2>/dev/null | \
   head -50 | \
-  xargs grep -n '^\(export \(default \)\?\(class\|function\|const\|interface\|type\|enum\|abstract\)\)' 2>/dev/null | \
-  sed "s|$TARGET_DIR/||" | head -80 || true
+  xargs awk '/^(export |export default )(class|function|const|interface|type|enum|abstract )/ {print FILENAME ":" FNR ":" $0}' 2>/dev/null | \
+  sed "s|^$TARGET_DIR/||" | head -100 || true
 echo '```'
 
 echo ""
@@ -171,9 +182,8 @@ eval "find \"$TARGET_DIR\" \( $FIND_EXCLUDES -type f -name '*.py' \
   ! -name 'test_*' ! -name '*_test.py' \
   -print \)" 2>/dev/null | \
   head -50 | \
-  xargs grep -n '^\(class \|def \|async def \)' 2>/dev/null | \
-  grep -v '^\s*#' | \
-  sed "s|$TARGET_DIR/||" | head -80 || true
+  xargs awk '/^(class |def |async def )/ {if ($0 !~ /^\s*#/) print FILENAME ":" FNR ":" $0}' 2>/dev/null | \
+  sed "s|^$TARGET_DIR/||" | head -100 || true
 echo '```'
 
 echo ""

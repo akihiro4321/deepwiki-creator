@@ -199,10 +199,10 @@ async execute(invocation: ToolInvocation): Promise<ToolResult> {
 
 | Kind | ツール例 | 説明 |
 |:---|:---|:---|
-| Read | `read_file`, `list_dir` | ファイルシステムの読み取り |
-| Edit | `write_file`, `edit_file` | ファイルの変更 |
-| Execute | `run_command` | シェルコマンドの実行 |
-| Search | `grep_search` | コード検索 |
+| Read | ファイル閲覧・ディレクトリ検索ツール等 | ファイルシステムの読み取り |
+| Edit | ファイル書き込みツール等 | ファイルの変更 |
+| Execute | コマンド実行機能 | シェルコマンドの実行 |
+| Search | コード検索ツール等 | コード検索 |
 
 ```typescript
 // packages/core/src/tools/constants.ts:L10-L25
