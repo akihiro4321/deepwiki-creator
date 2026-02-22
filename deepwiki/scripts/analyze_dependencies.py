@@ -93,6 +93,12 @@ def main():
             filepath = Path(root) / file
             rel_path = str(filepath.relative_to(target_dir))
             
+            # 巨大なファイルやバンドル済みのファイルは解析スキップ
+            if file.endswith('.min.js') or file.endswith('.bundle.js') or 'bundle' in filepath.parts:
+                continue
+            if filepath.exists() and filepath.stat().st_size > 500 * 1024:
+                continue
+            
             deps: Set[str] = set()
             if file.endswith('.py'):
                 deps = analyze_python_dependencies(filepath)

@@ -69,8 +69,8 @@ def extract_js_ts_signatures(filepath: Path) -> List[Dict[str, Any]]:
         
         # Match "export class ClassName" or "export default class ClassName"
         class_pattern = re.compile(r"(?:\/\*\*[\s\S]*?\*\/\s*)?(?:export\s+|default\s+)*class\s+(\w+)", re.MULTILINE)
-        function_pattern = re.compile(r"(?:\/\*\*[\s\S]*?\*\/\s*)?(?:export\s+|default\s+)*(?:async\s+)?function\s+(\w+)\s*\(([\s\S]*?)\)", re.MULTILINE)
-        arrow_function_pattern = re.compile(r"(?:\/\*\*[\s\S]*?\*\/\s*)?(?:export\s+|default\s+)*(?:const|let|var)\s+(\w+)(?:\s*:\s*[^=]+)?\s*=\s*(?:async\s+)?\(([\s\S]*?)\)[\s\S]*?=>", re.MULTILINE)
+        function_pattern = re.compile(r"(?:\/\*\*[\s\S]*?\*\/\s*)?(?:export\s+|default\s+)*(?:async\s+)?function\s+(\w+)\s*\(([^)]{0,500})\)", re.MULTILINE)
+        arrow_function_pattern = re.compile(r"(?:\/\*\*[\s\S]*?\*\/\s*)?(?:export\s+|default\s+)*(?:const|let|var)\s+(\w+)(?:\s*:\s*[^=]+)?\s*=\s*(?:async\s+)?\(([^)]{0,500})\)\s*(?::\s*[^=]+)?\s*=>", re.MULTILINE)
 
         for match in class_pattern.finditer(content):
             doc_candidate = match.group(0)
@@ -218,6 +218,12 @@ def main():
         for file in files:
             filepath = Path(root) / file
             rel_path = str(filepath.relative_to(target_dir))
+            
+            # 巨大なファイルやバンドル済みのファイルは解析スキップ
+            if file.endswith('.min.js') or file.endswith('.bundle.js') or 'bundle' in filepath.parts:
+                continue
+            if filepath.exists() and filepath.stat().st_size > 500 * 1024:
+                continue
             
             sigs = []
             if file.endswith('.py'):
