@@ -931,8 +931,8 @@ def main():
         if result.grade in ('C', 'D', 'F'):
             print(generate_ai_corrections([result]))
 
-        # 終了コード: 不合格なら 1
-        sys.exit(0 if result.grade in ('A', 'B', 'C') else 1)
+        # 終了コード: Grade B以上が合格
+        sys.exit(0 if result.grade in ('A', 'B') else 1)
 
     elif os.path.isdir(target):
         md_files = sorted(Path(target).glob('*.md'))
@@ -961,8 +961,8 @@ def main():
         if problem_pages or ws.issues:
             print(generate_ai_corrections(results, ws))
 
-        # 全ページ C 以上なら成功
-        failing = [r for r in results if r.grade in ('D', 'F')]
+        # 全ページ B以上なら成功
+        failing = [r for r in results if r.grade in ('C', 'D', 'F')]
         sys.exit(0 if not failing else 1)
 
     else:

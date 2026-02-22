@@ -5,6 +5,7 @@
 ---
 
 ## 1. 規模ガイドライン & セクション構成
+
 設計するWikiは対象の規模に応じたページ数を確保すること。大規模リポジトリで15ページ以下は不可。
 
 | 規模 | ファイル数目安 | セクション数 | 総ページ数 |
@@ -15,6 +16,7 @@
 
 **セクション構成テンプレート（6セクション基本形）**
 ※対象に該当しないもの以外は省略不可。「User Guide」などは特に省略しがちだが極めて重要。
+
 1. `Overview（概要）`: Architecture Overview / Project Structure
 2. `Getting Started（はじめに）`: Installation / Authentication / Basic Setup
 3. `User Guide（ユーザーガイド）`: CLI Usage / Modes / Plugin Usage など
@@ -27,6 +29,7 @@
 ---
 
 ## 2. ユーザー確認のための提示フォーマット（Markdown表形式）
+
 提案時はJSON構造をそのまま出力するのではなく、必ず人間が読みやすいMarkdownの箇条書きや表形式でユーザーに提示して「停止」する。
 
 ```markdown
@@ -53,8 +56,9 @@
 ---
 
 ## 3. `outline.json` スキーマ仕様
+
 ユーザー承認後に指定ディレクトリに出力する進捗管理用のJSONフォーマット。
-`status` 項目は初期値 `"pending"` で生成し、以降の Phase 3d（検証合格後）で逐次 `"done"` に更新する。
+`status` 項目は初期値 `"pending"` で生成し、以降の Phase 3c（検証合格後）で逐次 `"done"` に更新する。
 
 ```json
 {
@@ -69,6 +73,7 @@
         {
           "id": "1.1",
           "title": "Architecture Overview",
+          "description": "システムの全体アーキテクチャとディレクトリ構成の解説",
           "filename": "1.1-architecture-overview.md",
           "filePaths": ["src/index.ts"],
           "importance": "high",
