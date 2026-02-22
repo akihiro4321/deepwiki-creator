@@ -53,6 +53,9 @@
 **修正希望やページの追加・削除があればお知らせください。**
 ```
 
+> [!WARNING]
+> Phase 2b（ユーザー提案時）の段階では、**絶対に JSON フォーマット（後の outline.json として使うもの）を出力してはいけません**。提案は全てMarkdown形式で行ってください。
+
 ---
 
 ## 3. `outline.json` スキーマ仕様
@@ -65,22 +68,17 @@
   "title": "プロジェクト名 Wiki Outline",
   "generatedAt": "2026-02-22T12:00:00+09:00",
   "outputDir": "/path/to/docs/wiki",
-  "sections": [
+  "targetDir": "/path/to/target/project",
+  "pages": [
     {
-      "id": "1",
-      "title": "Overview",
-      "pages": [
-        {
-          "id": "1.1",
-          "title": "Architecture Overview",
-          "description": "システムの全体アーキテクチャとディレクトリ構成の解説",
-          "filename": "1.1-architecture-overview.md",
-          "filePaths": ["src/index.ts"],
-          "importance": "high",
-          "relatedPages": ["2.1"],
-          "status": "pending"
-        }
-      ]
+      "id": "1.1",
+      "title": "Architecture Overview",
+      "description": "システムの全体アーキテクチャとディレクトリ構成の解説",
+      "filename": "1.1-architecture-overview.md",
+      "filePaths": ["src/index.ts"],
+      "importance": "high",
+      "relatedPages": ["2.1"],
+      "status": "pending"
     }
   ]
 }

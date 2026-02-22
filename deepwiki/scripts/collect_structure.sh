@@ -27,13 +27,14 @@ echo "日時: $(date '+%Y-%m-%d %H:%M:%S')"
 echo ""
 
 # --- 除外パターン ---
+# target: Rust/Java ビルド成果物, Pods: iOS CocoaPods
 EXCLUDE_DIRS=(
   .git node_modules __pycache__ .next .nuxt dist build out
   .cache .tmp .temp vendor .venv venv env .env
   .idea .vscode .DS_Store coverage .nyc_output
   .terraform .serverless .aws-sam
-  target  # Rust/Java
-  Pods    # iOS
+  target
+  Pods
 )
 
 EXCLUDE_FILES=(
