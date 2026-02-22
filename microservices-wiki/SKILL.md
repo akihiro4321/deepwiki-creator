@@ -15,8 +15,12 @@ description: マイクロサービスアーキテクチャ全体の俯瞰的なW
 
 > **言語ルール**: ページタイトルは**英語**。本文は**日本語**。コード要素・ファイルパス・コマンドは英語のまま。
 
-参照ドキュメント: テンプレートは [references/prompts.md](references/prompts.md)、出力フォーマットは [references/output-format.md](references/output-format.md)
+**LLMへの指示**: 本ファイル (`SKILL.md`) は**実行手順 (アルゴリズム)** のみを示す。各ステップで要求される「出力フォーマット」「品質基準」などの詳細は、必ず以下のフェーズ対応リファレンスを参照しながら作業を進めること。
 
+- **Phase 1~2 用**: [references/01-analysis-prompts.md](references/01-analysis-prompts.md)
+- **Phase 3 用**: [references/02-structure-prompts.md](references/02-structure-prompts.md)
+- **Phase 4 用**: [references/03-generation-prompts.md](references/03-generation-prompts.md)
+- **Mermaid記述時（必須）**: [references/04-mermaid-rules.md](references/04-mermaid-rules.md)
 ---
 
 ## Phase 1: インプット収集
@@ -91,48 +95,10 @@ README.md（ルート）, ARCHITECTURE.md, docs/architecture/*, ADR（Architectu
 各サービスの docs/wiki/index.md（deepwikiで生成済みの場合）
 ```
 
-### Step 1e: アーキテクチャ概要メモの生成
+### Step 1e: アーキテクチャ概要メモの整理
 
-Step 1a〜1d の結果を以下の形式で整理する。**これが Phase 2・3 の入力になる。**
-
-```text
-## アーキテクチャ概要メモ
-
-### 検出されたサービス一覧
-| サービス名 | 技術スタック | ポート | DB | 役割（推定） |
-| :--- | :--- | :--- | :--- | :--- |
-| user-service | Node.js | 3001 | PostgreSQL | ユーザー認証・管理 |
-| order-service | Python | 8000 | MySQL | 注文管理 |
-| notification-service | Go | 8080 | Redis | 通知送信（非同期） |
-
-### サービス間通信
-- [同期/REST]: [呼び出し元] → [呼び出し先]: [エンドポイント] (環境変数: USER_SERVICE_URL等から判断)
-  例: order-service → user-service: GET /users/{id} (USER_SERVICE_URL から判断)
-- [同期/gRPC]: [呼び出し元] → [呼び出し先]: [ServiceName.Method]
-- [非同期/MQ]: [Publisher] → [topic/queue名] → [Subscriber]
-
-### データストア構成
-- [サービス名]: 専有 [DB種別] (schema: [主要テーブル])
-- [サービス名]: 専有 [DB種別] + 共有 [キャッシュ] with [サービス名]
-- 共有DBがある場合: ⚠️ [サービスA] と [サービスB] が同一[DB名]を共有
-
-### API Gateway / エントリーポイント
-- ゲートウェイ: [技術名] (パス: [設定ファイルパス])
-- ルーティング:
-  - /api/users/* → user-service:3001
-  - /api/orders/* → order-service:8000
-
-### 横断的関心事
-- 認証・認可: [方式] (例: JWT, OAuth2, API Key)
-- サービスディスカバリ: [方式] (例: k8s DNS, Consul)
-- ログ集約: [ツール] (例: ELK Stack, Datadog)
-- トレーシング: [ツール] (例: Jaeger, Zipkin, OpenTelemetry)
-- CI/CD: [ツール] (例: GitHub Actions, Jenkins)
-
-### 注目すべき問題・特徴
-- ⚠️ [共有DB等の問題点]: [詳細]
-- ✅ [良い設計]: [詳細]
-```
+Step 1a〜1d の結果を収集したら詳細なメモに整理する。
+> **要求フォーマット**: 必ず **[references/01-analysis-prompts.md](references/01-analysis-prompts.md)** の形式に従って「サービス一覧」「通信の記録方式」「データストア・インフラ分析」を書き出すこと。これが Phase 2・3 の入力になる。
 
 ---
 
@@ -165,67 +131,15 @@ Phase 1 のメモを基に、以下の分析を深める。
 
 Phase 1-2 の分析を基に、全体アーキテクチャ Wiki の構造を設計する。
 
-### セクション構成テンプレート（5セクション基本形）
+### 構造設計のガイドライン
 
-対象システムの実態に合わせて調整する。存在しない関心事のセクションは省略してよい。
-
-```
-1. System Overview（システム概要）
-   1.1 Architecture Overview（全体アーキテクチャ概要）  ← 必須・importance: high
-   1.2 Service Catalog（サービス一覧・責務定義）       ← 必須・importance: high
-
-2. Service Communication（サービス間通信）
-   2.1 API Gateway & Routing（APIゲートウェイ・ルーティング）
-   2.2 Synchronous Communication（同期通信: REST/gRPC）
-   2.3 Asynchronous Communication（非同期通信: MQ/Event Streaming）
-   ※ 非同期通信がない場合は 2.3 を省略
-
-3. Data Architecture（データアーキテクチャ）
-   3.1 Database per Service（サービス別DB設計）
-   3.2 Data Flow & Consistency（データフロー・整合性）
-   ※ 共有DBがない場合は 3.2 を簡略化
-
-4. Infrastructure & Deployment（インフラ・デプロイ）
-   4.1 Container Orchestration（コンテナ構成）
-   4.2 Service Mesh & Networking（ネットワーク構成）   ← サービスメッシュがある場合のみ
-   4.3 CI/CD Pipeline（デプロイパイプライン）
-
-5. Cross-Cutting Concerns（横断的関心事）
-   5.1 Authentication & Authorization（認証・認可）
-   5.2 Observability（可観測性: ログ・メトリクス・トレーシング）
-   5.3 Error Handling & Resilience（エラー処理・耐障害性）   ← Circuit Breaker等がある場合
-```
-
-### ページ定義の形式
-
-```json
-{
-  "id": "1.1",
-  "title": "Architecture Overview",
-  "inputSources": [
-    "docker-compose.yml",
-    "k8s/deployments/*.yaml",
-    "docs/architecture/README.md"
-  ],
-  "importance": "high",
-  "relatedPages": ["1.2", "2.1"],
-  "keyDiagrams": ["全体構成 flowchart", "サービス間通信 sequenceDiagram"],
-  "linkedServiceWikis": ["user-service/docs/wiki/1.1-architecture-overview.md"]
-}
-```
+> **構成・出力形式**: セクション・ページの分割数や、提案時・JSON出力時のフォーマットは、必ず **[references/02-structure-prompts.md](references/02-structure-prompts.md)** に従うこと。
 
 > [!CAUTION]
 > **【超重要: ユーザー確認の必須化】**
-> 構造を JSON 形式でアウトラインとして生成した後、**絶対に Phase 4 (ページ作成) に進んではいけません。**
-> 必ずユーザーに対して「この構造でページ生成を開始してよいか」の承認を求めてください。
-
-### ページ数ガイドライン
-
-| サービス数 | 推奨ページ数 | 備考 |
-| :--- | :--- | :--- |
-| 3-5サービス | 10-18ページ | 小規模 |
-| 6-15サービス | 18-30ページ | 中規模 |
-| 16サービス以上 | 30-50ページ | 大規模: サービスグループ単位でページ追加 |
+> 構造設計を行った後、**絶対に次の段階 (Phase 4 ページ作成) に自動で進んではいけません。**
+> ユーザーに対して「この要件（Markdown表形式）でページ生成を開始してよいか」の**承認を求めて一旦停止する**こと。（JSONをそのままユーザーに見せないこと）
+> 承認を得てから、指定のスキーマで `outline.json` を出力して進行する。
 
 ---
 
@@ -242,44 +156,20 @@ importance の順に処理: `high` → `medium` → `low`
 各ページの `inputSources` に記載されたファイルを再確認する。
 
 1. Phase 1 で読んだ情報で足りなければ、該当設定ファイルを再度読む
-2. **スニペット候補を 5-10 個リストアップ** してから生成に進む
-   - インフラ定義のスニペット例: docker-compose のサービス定義、k8s の Deployment/Service 定義、nginx のルーティング設定等
-   - API仕様のスニペット例: OpenAPI のエンドポイント定義、proto のサービス定義
+2. **スニペット候補を 5-10 個リストアップ** してから生成に進む（インフラ定義やOpenAPIのパスなど）
+> **フォーマット要件**: 分析メモは **[references/03-generation-prompts.md](references/03-generation-prompts.md)** の「1. ソース固有分析メモの出力フォーマット」に従うこと。
 
 #### Step 4b: ページ生成
 
 分析メモを基に Markdown ページを生成する。
 
-**アーキテクチャWiki特有の品質基準**:
+> **生成時の品質・文字数要件と構成**:
+> 生成時は **[references/03-generation-prompts.md](references/03-generation-prompts.md)** に従い、文字数水準、スニペット数、および疑似コード禁止のルールを守ること。
+> 出力時は、必ず「セルフレビューリスト」でルールを満たせているか確認する。
 
-1. **Mermaid ダイアグラム（必須）**: importance: high は **2-3個、2種類以上**
-   - 全体構成には `flowchart TD` または `graph TD`（**`LR` は絶対禁止**）
-   - サービス間通信には `sequenceDiagram`
-   - DB構成には `erDiagram`
-   - 状態・ライフサイクルには `stateDiagram-v2`
-   - **ノードラベルには実際のサービス名・コンポーネント名**を使う
-
-   > [!CAUTION]
-   > **【Mermaid パースエラー防止: 絶対厳守】**（詳細は [references/prompts.md](references/prompts.md) を参照）
-   > - ノードラベルに `()`, `[]`, `{}`, `<>` を含む場合は **必ず `["ラベル"]` でダブルクォートで囲む**
-   >   - ❌ `D[Data Pipeline (api.py)]` → ✅ `D["Data Pipeline (api.py)"]`
-   > - **ノードIDにハイフンを使用禁止**（アンダースコアを使用）
-   >   - ❌ `order-service["order-service"]` → ✅ `order_svc["order-service"]`
-   > - HTMLタグ（`<`, `>` 等）はノードラベルに使用不可
-   > - `sequenceDiagram` の矢印はフローチャート記法 `--|label|-->` を**絶対に使用しない**。必ず `A->>B: label` 形式で書く
-
-2. **コードスニペット（重要）**: 設定ファイルからの実際の引用のみ（疑似コード禁止）
-   - `docker-compose.yml` のサービス定義
-   - k8s マニフェスト（Deployment, Service, Ingress）
-   - nginx/kong ルーティング設定
-   - OpenAPI エンドポイント定義
-   - proto サービス定義
-
-3. **Sources 行**: 設定ファイルへの参照（行番号付き）
-   - 形式: `**Sources:** [docker-compose.yml:L1-L45](file:///絶対パス/docker-compose.yml#L1-L45)`
-   - 既存の個別 Wiki がある場合: `[user-service Architecture](file:///path/docs/wiki/1.1-architecture-overview.md)`
-
-4. **テーブル**: サービス一覧・API一覧・DB一覧等はテーブルで整理
+> [!CAUTION]
+> **【Mermaid パースエラー防止: 絶対厳守】**
+> Mermaidダイアグラムを書く際は、必ず **[references/04-mermaid-rules.md](references/04-mermaid-rules.md)** を遵守すること。ここでの規約（クォート漏れ、ハイフン使用禁止など）を破るとシステムで利用できないWikiになる。
 
 #### Step 4c: ファイル出力
 
@@ -316,26 +206,12 @@ docs/arch-wiki/
 ├── 1-system-overview.md
 ├── 1.1-architecture-overview.md      # ← 最重要ページ
 ├── 1.2-service-catalog.md
-├── 2-service-communication.md
-├── 2.1-api-gateway-and-routing.md
-├── 2.2-synchronous-communication.md
-├── 2.3-asynchronous-communication.md
-├── 3-data-architecture.md
-├── 3.1-database-per-service.md
-├── 3.2-data-flow-and-consistency.md
-├── 4-infrastructure-and-deployment.md
-├── 4.1-container-orchestration.md
-├── 4.2-service-mesh-and-networking.md
-├── 4.3-ci-cd-pipeline.md
-├── 5-cross-cutting-concerns.md
-├── 5.1-authentication-and-authorization.md
-├── 5.2-observability.md
-└── 5.3-error-handling-and-resilience.md
+├── ... （以下生成ファイル）
 ```
 
 ファイル名規則: `<番号>-<kebab-case-title>.md`
 
-**index.md に含める内容**:
+**index.md に含める必須内容**:
 1. システム名・概要（2-3段落）
 2. 技術スタック全体テーブル
 3. 全体アーキテクチャの Mermaid ダイアグラム（最上位俯瞰図）
@@ -362,26 +238,3 @@ bash scripts/collect_infra.sh /tmp/arch-wiki/user-service > /tmp/infra-user.txt
 bash scripts/collect_infra.sh /tmp/arch-wiki/order-service > /tmp/infra-order.txt
 # ...各ファイルを順次読んで Phase 2 のアーキテクチャ分析に進む
 ```
-
----
-
-## ページ品質基準
-
-### importance 別の最低要件
-
-| importance | 語数 | Mermaid | 種類 | スニペット | Sources行 | テーブル |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| high | **1200語以上** | 2-3個 | **2種類以上** | **5-8個** | 全セクション | **1個以上** |
-| medium | **600-1000語** | 1-2個 | 1種類以上 | **3-5個** | 全セクション | 推奨 |
-| low | 300-500語 | 1個 | 1種類以上 | 1-2個 | 主要セクション | 任意 |
-
-### よくある失敗パターンと対策
-
-| 失敗パターン | 対策 |
-| :--- | :--- |
-| ダイアグラムのサービス名が汎用的（「Service A」等） | collect_infra.sh の出力から実際のサービス名を使う |
-| サービス間の通信が矢印のみで通信プロトコルが不明 | 矢印ラベルに REST/gRPC/Kafka等を明記する |
-| DBの共有・専有が不明 | docker-compose の環境変数で接続先ホストを比較する |
-| コードスニペットが設定ファイルではなく疑似コード | docker-compose/k8s/OpenAPIから直接引用する |
-| 個別サービスの内部実装を書いてしまう | 「サービス間」の繋ぎ方に限定する |
-| ページ数が少なすぎる（8ページ以下） | Service Communicationは通信方式ごとにページを分割する |
