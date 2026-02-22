@@ -77,9 +77,11 @@ echo "## ファイル統計"
 echo ""
 echo "### 言語別ファイル数"
 echo '```'
+set +o pipefail
 eval "find \"$TARGET_DIR\" \( $FIND_EXCLUDES -type f -print \)" 2>/dev/null | \
   grep -v -E '(\.lock$|\.sum$|\.min\.|\.map$)' | \
   sed 's/.*\.//' | sort | uniq -c | sort -rn | head -20 || echo "(集計に失敗しました)"
+set -o pipefail
 echo '```'
 
 # 総ファイル数
@@ -154,6 +156,7 @@ echo ""
 
 echo "## ファイルサイズ Top 20（大きいファイル=重要度が高い可能性）"
 echo '```'
+set +o pipefail
 eval "find \"$TARGET_DIR\" \( $FIND_EXCLUDES -type f \( \
   -name '*.ts' -o -name '*.tsx' -o -name '*.js' -o -name '*.jsx' -o \
   -name '*.py' -o -name '*.rs' -o -name '*.go' -o -name '*.java' -o \
@@ -163,6 +166,7 @@ eval "find \"$TARGET_DIR\" \( $FIND_EXCLUDES -type f \( \
   xargs wc -l 2>/dev/null | sort -rn | head -21 | \
   (grep -v ' total$' || true) | \
   sed "s|$TARGET_DIR/||" || echo "(集計に失敗しました)"
+set -o pipefail
 echo '```'
 
 # --- セクション 5: エクスポート情報 ---
