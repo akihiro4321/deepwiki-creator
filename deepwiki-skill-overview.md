@@ -18,6 +18,8 @@
    - **役割**: 生成されたファイルの品質（文字数、Mermaid図の有無、スニペットの数など）を確定的なルールで採点し、合格かリトライが必要かを判定します。`generate_pages.py` の自己修正ループ内で利用されます。
 5. **Mermaid修正スクリプト (Mermaid Fixer / `fix_mermaid.py`)**
    - **役割**: 全ページ生成完了後に各Markdownファイルを走査し、Mermaidダイアグラムのルール違反（LRレイアウト、ノードIDのハイフン、括弧の未クォートなど）を正規表現で静的チェックします。違反が検出されたファイルのみ Gemini CLI を呼び出して違反箇所だけを修正し、修正後に再チェックして確認します。
+6. **Sourcesリンク変換スクリプト (Sources Link Fixer / `fix_sources.py`)**
+   - **役割**: 全ページ生成完了後、Sources行の `file:///` 形式のローカルパスリンクをチームで共有可能な形式に一括変換します。ユーザーへの確認（GitHub/GitLab URL・vscode:// URL・変換なしの3択）に基づき、GitHub/GitLabを選んだ場合は `git remote get-url origin` と `git rev-parse --abbrev-ref HEAD` で URL とブランチを自動取得して変換します。
 
 ---
 
@@ -33,13 +35,14 @@
 - **処理**: Phase 1の要約レポートをもとに、親エージェントがWiki全体のページ構成（アウトライン）を設計し、ユーザーに提案・合意を得ます。合意後、進捗管理ファイルとして `outline.json` を出力します。
 - **意図**: ユーザーとの対話（ヒューマンインザループ）を挟むことで、出力の方向修正を可能にします。また、JSONファイルで状態を管理することで、途中で処理が中断しても再開可能な堅牢性を持たせています。
 
-### Phase 3: ページ単位の並列生成・自己修正・Mermaid修正 (Parallel Generation, Self-Correction & Mermaid Fix)
-- **処理**: 親エージェントが `outline.json` の作成後、統合スクリプト (`generate_pages.py`) に以後の処理を委譲します。このスクリプトは未完了ページを抽出し、内部で個別の `gemini` プロセスを立ち上げて執筆を並列に行います。生成後は自動で **検証スクリプト (`validate_page.py`)** を呼び出し、合格基準に達するまでプログラム制御による修整ループが回ります。全ページ完了後、**Mermaid修正スクリプト (`fix_mermaid.py`)** を実行してダイアグラムのルール違反を一括修正します。
+### Phase 3: ページ単位の並列生成・自己修正・後処理 (Parallel Generation, Self-Correction & Post-Processing)
+- **処理**: 親エージェントが `outline.json` の作成後、統合スクリプト (`generate_pages.py`) に以後の処理を委譲します。このスクリプトは未完了ページを抽出し、内部で個別の `gemini` プロセスを立ち上げて執筆を並列に行います。生成後は自動で **検証スクリプト (`validate_page.py`)** を呼び出し、合格基準に達するまでプログラム制御による修整ループが回ります。全ページ完了後、**Mermaid修正スクリプト (`fix_mermaid.py`)** を実行し、さらに**ユーザーへ Sources リンクの形式を確認**してから **`fix_sources.py`** でローカルパスリンクをチーム共有可能な形式に一括変換します。
 - **意図**:
   1. **並列処理による高速化**: 複数ページを同時に生成させることで、処理完了までの時間を劇的に短縮します。
   2. **コンテキストの分離と汚染防止**: 「今書く1ページに必要な2〜3個のファイルとフォーマット」だけをプロンプトとして構築し、完全に独立した生成プロセスに渡すことで、無関係な情報によるハルシネーションを排除します。
   3. **確実な自己修正と安定運用**: スクリプトが検証結果を判定し、タイムアウトや最大制限付きの再実行ループを回すため、LLM自身の自律的なツール実行に頼るよりも安定し、スタックや無限ループを防止できます。
   4. **Mermaid品質の後処理保証**: 生成時のプロンプト指示だけでは守り切れないMermaidルール違反を、全ページ完了後に正規表現で静的チェックして確実に修正します。違反のないページはスキップするため、余分なGemini呼び出しは発生しません。
+  5. **Sourcesリンクのポータビリティ確保**: ページ生成時は必然的にローカルの `file:///` パスになります。後処理として `git remote` から URL とブランチを自動取得してチーム共有可能な GitHub/GitLab URL へ変換することで、Wikiをそのままチームで利用できます。変換形式はユーザーが1択で選ぶだけで、URL等の詳細情報は `git` コマンドから自動取得されます。
 
 ### Phase 4: 結合・整形 (Assembly)
 - **処理**: 全ページの生成・Mermaid修正が完了した後、インデックスページ（`index.md`）を作成し、全体の結合を行って完了報告をします。
@@ -58,6 +61,7 @@ sequenceDiagram
     participant GenScript as generate_pages.py
     participant Gemini as Gemini CLI(並列実行)
     participant MermaidFix as fix_mermaid.py
+    participant SourcesFix as fix_sources.py
 
     User->>+Main: DeepWikiを作成して
 
@@ -98,6 +102,13 @@ sequenceDiagram
         MermaidFix->>MermaidFix: 再チェックで修正を確認
     end
     MermaidFix-->>-Main: Mermaid修正完了
+
+    Main->>User: Sourcesリンク形式を確認(GitHub URL / vscode:// / 変換なし)
+    User-->>Main: 選択(例: 1. GitHub URL)
+    Main->>+SourcesFix: fix_sources.py --link-style github 実行
+    Note over SourcesFix: git remote でURL・ブランチを自動取得
+    SourcesFix->>SourcesFix: file:/// リンクをGitHub URLに一括変換
+    SourcesFix-->>-Main: 変換完了
 
     Note over Main: Phase 4: 結合・整形
     Main->>Main: index.md などの結合処理
