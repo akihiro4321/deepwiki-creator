@@ -255,7 +255,7 @@ def build_save_prompt(title: str, target_file_path: str) -> str:
 ファイルへの書き込み（write_file ツール使用）が完了したら、その旨を報告してください。
 """
 
-async def run_gemini_cli(prompt: str, working_dir: str, target_dir: str, output_dir: str) -> bool:
+async def run_gemini_cli(prompt: str, working_dir: str, target_dir: str, output_dir: str, additional_dirs: List[str] = []) -> bool:
     """
     Executes the gemini CLI command to generate the page.
     Returns True if the command executes without throwing an exception.
@@ -264,7 +264,7 @@ async def run_gemini_cli(prompt: str, working_dir: str, target_dir: str, output_
     # stdin に入力がある場合 gemini は自動的に non-interactive モードで動作する
     # --sandbox はmacOS Seatbeltによりファイル書き込みを制限するため使用しない
     # output_dir を --include-directories に含めないと Gemini がファイルを書き込めない
-    include_dirs = ",".join(set([working_dir, target_dir, output_dir]))
+    include_dirs = ",".join(set([working_dir, target_dir, output_dir] + additional_dirs))
     cmd = [
         "gemini",
         "-m", "gemini-2.5-flash",
@@ -344,7 +344,7 @@ async def validate_page(page_file_path: str, importance: str, working_dir: str) 
     except Exception as e:
         return False, f"Exception during validation: {e}"
 
-async def process_page(page: Dict[str, Any], output_dir: str, working_dir: str, target_dir: str, all_pages: Optional[List[Dict[str, Any]]] = None) -> Tuple[bool, Optional[str]]:
+async def process_page(page: Dict[str, Any], output_dir: str, working_dir: str, target_dir: str, all_pages: Optional[List[Dict[str, Any]]] = None, additional_dirs: List[str] = []) -> Tuple[bool, Optional[str]]:
     """
     Processes a single page: builds prompt, runs gemini, validates, and loops if necessary.
     Returns (success, error_message). error_message is None on success.
@@ -382,7 +382,7 @@ async def process_page(page: Dict[str, Any], output_dir: str, working_dir: str, 
         
         # 2. Run Gemini
         print(f"[{page_id}] Running Gemini CLI...")
-        cli_success = await run_gemini_cli(prompt, working_dir, target_dir, output_dir)
+        cli_success = await run_gemini_cli(prompt, working_dir, target_dir, output_dir, additional_dirs)
         
         if not cli_success:
             feedback = "Gemini CLI execution failed or timed out. Please try to write the file again by strictly following instructions."
@@ -430,24 +430,32 @@ async def main():
             target_dir = os.path.abspath(os.path.join(output_dir, target_dir))
     else:
         target_dir = working_dir
-        
+
+    # 周辺サービス等の追加ディレクトリ（Gemini CLIのアクセス許可対象）
+    raw_additional = outline_data.get("additionalDirs", [])
+    additional_dirs = []
+    for d in raw_additional:
+        if not os.path.isabs(d):
+            d = os.path.abspath(os.path.join(output_dir, d))
+        additional_dirs.append(d)
+
     pages = outline_data.get("pages", [])
     pending_pages = [p for p in pages if p.get("status") in ("pending", "error")]
-    
+
     if not pending_pages:
         print("No pending pages found in outline.json.")
         return
-        
+
     print(f"Found {len(pending_pages)} pages to generate. Starting parallel processing (max {MAX_CONCURRENT_PAGES})...")
-    
+
     # Process pages concurrently with a semaphore
     semaphore = asyncio.Semaphore(MAX_CONCURRENT_PAGES)
-    
+
     all_pages = outline_data.get("pages", [])
 
     async def process_with_semaphore(page, idx):
         async with semaphore:
-            success, error_msg = await process_page(page, output_dir, working_dir, target_dir, all_pages)
+            success, error_msg = await process_page(page, output_dir, working_dir, target_dir, all_pages, additional_dirs)
             # Update status in memory
             if success:
                 page["status"] = "done"
