@@ -156,12 +156,17 @@ def count_code_snippets(text: str) -> int:
 
 
 def count_snippet_citations(text: str) -> int:
-    """コードスニペット内の出典コメント (// path:L行番号) をカウント"""
+    """コードスニペット内の出典コメント (// path:L行番号 または # path:L行番号) をカウント。
+    // は TS/JS/Go/Rust/Java など、# は Python/Ruby/Shell/YAML など。
+    """
     code_blocks = re.findall(r'```\w+\n([\s\S]*?)```', text)
     citations = 0
     for block in code_blocks:
-        # パターン: // path/to/file.ts L行番号 or // path/to/file.ts:L行番号
-        if re.search(r'//\s*\S+\.(ts|js|py|go|rs|java|tsx|jsx)\s*[:\s]L\d+', block):
+        # (?://|#) で // または # のどちらのコメント形式も受け入れる
+        if re.search(
+            r'(?://|#)\s*\S+\.(ts|js|py|go|rs|java|tsx|jsx|vue|sh|rb|kt|swift|cs|cpp|c|h|php|scala|ex|exs|dart|lua|r)\s*[:\s]L\d+',
+            block,
+        ):
             citations += 1
     return citations
 
@@ -435,7 +440,54 @@ def validate_page(filepath: str, importance: Optional[str] = None) -> Validation
     else:
         result.issues.append("⚠️  関連ページリンクなし")
 
-    # --- 12. テーブル (5点) ---
+    # --- 12. Mermaid構文静的チェック (5点) ---
+    result.max_score += 5
+    mermaid_blocks_raw = re.findall(r'```mermaid\n([\s\S]*?)```', content)
+    mermaid_syntax_errors = []
+    for block in mermaid_blocks_raw:
+        # LRレイアウト
+        if re.search(r'\b(?:graph|flowchart)\s+LR\b', block):
+            mermaid_syntax_errors.append("LRレイアウト (graph LR / flowchart LR) が使用されています")
+        # []内に()が含まれてクォートされていない
+        unquoted_bp = re.findall(r'\[[^\]"]*\([^)]*\)[^\]"]*\]', block)
+        if unquoted_bp:
+            mermaid_syntax_errors.append(f"ノード [] 内に括弧 () が含まれているのにクォートされていません: {unquoted_bp[:1]}")
+        # ()内に[]が含まれてクォートされていない
+        unquoted_pb = re.findall(r'\([^)"]*\[[^\]]*\][^)"]*\)', block)
+        if unquoted_pb:
+            mermaid_syntax_errors.append(f"ノード () 内に角括弧 [] が含まれているのにクォートされていません: {unquoted_pb[:1]}")
+        # {}内に括弧や|が含まれてクォートされていない
+        unquoted_bs = re.findall(r'\{[^}"]*[(\[|][^}"]*\}', block)
+        if unquoted_bs:
+            mermaid_syntax_errors.append(f"ひし形ノード {{}} 内に括弧や | が含まれているのにクォートされていません: {unquoted_bs[:1]}")
+        # フローチャートのノードラベル内に|パイプが含まれてクォートされていない
+        if re.search(r'\b(?:graph|flowchart)\b', block):
+            unquoted_pipe = re.findall(r'(?:\[|\()([^"()\[\]]*\|[^"()\[\]]*?)(?:\]|\))', block)
+            if unquoted_pipe:
+                mermaid_syntax_errors.append(f"ノードラベル内に | パイプ文字が含まれているのにクォートされていません: {unquoted_pipe[:1]}")
+        # HTMLタグ
+        if re.search(r'<[a-zA-Z][^>]*>', block):
+            mermaid_syntax_errors.append("Mermaid内にHTMLタグが使用されています")
+        # シーケンス図固有チェック
+        if 'sequenceDiagram' in block:
+            # フローチャート風記法
+            if re.search(r'--\|[^|]*\|-->', block):
+                mermaid_syntax_errors.append("シーケンス図でフローチャート風記法 A--|label|-->B が使われています")
+            # コロン後が空のラベル
+            if re.search(r'(?:->>[+\-]?|-->>[+\-]?|-\)[+\-]?)\s*[\w]+\s*:\s*$', block, re.MULTILINE):
+                mermaid_syntax_errors.append("シーケンス図のメッセージ行でコロン（:）後のラベルが空です（例: A->>B:）")
+
+    if not mermaid_syntax_errors:
+        result.score += 5
+        if mermaid_count > 0:
+            result.passes.append("✅ Mermaid構文: 静的チェックOK")
+        else:
+            result.passes.append("✅ Mermaid構文: ブロックなし（チェック対象なし）")
+    else:
+        for err in mermaid_syntax_errors[:3]:
+            result.issues.append(f"❌ Mermaid構文エラー: {err}")
+
+    # --- 13. テーブル (5点) ---
     result.max_score += 5
     table_count = count_tables(content)
     min_tables = reqs['min_tables']
@@ -479,6 +531,13 @@ def format_result(result: ValidationResult) -> str:
         lines.append("  合格項目:")
         for p in result.passes:
             lines.append(f"    {p}")
+
+    if getattr(result, 'mermaid_validation_errors', None):
+        lines.append("")
+        lines.append("  ❌ Mermaid構文エラー:")
+        for err in result.mermaid_validation_errors:
+            indented_err = "\n".join([f"    > {line}" for line in err.split("\n")])
+            lines.append(indented_err)
 
     lines.append("")
     return '\n'.join(lines)
@@ -835,6 +894,11 @@ def generate_ai_corrections(results: list, ws: Optional[WikiStructureResult] = N
                     "          - データフロー（入力→処理→出力）の説明を追加\n"
                     "          - エッジケースやエラーハンドリングの解説を追加"
                 )
+            elif 'Mermaid構文エラー' in issue:
+                action_parts.append(
+                    f"Mermaidグラフの構文エラーを修正してください: {issue}\n"
+                    "          エラー詳細は実行結果の 'Mermaid構文エラー' セクションを確認してください。"
+                )
             elif 'Mermaid' in issue:
                 action_parts.append(
                     "Mermaidダイアグラムを追加してください。推奨: flowchart（処理フロー）+ sequenceDiagram（モジュール間通信）の2種類。\n"
@@ -919,8 +983,8 @@ def main():
         if result.grade in ('C', 'D', 'F'):
             print(generate_ai_corrections([result]))
 
-        # 終了コード: 不合格なら 1
-        sys.exit(0 if result.grade in ('A', 'B', 'C') else 1)
+        # 終了コード: Grade B以上が合格
+        sys.exit(0 if result.grade in ('A', 'B') else 1)
 
     elif os.path.isdir(target):
         md_files = sorted(Path(target).glob('*.md'))
@@ -932,6 +996,9 @@ def main():
         for md_file in md_files:
             result = validate_page(str(md_file), importance_override)
             results.append(result)
+
+        # Now we can safely print the outputs
+        for result in results:
             print(format_result(result))
 
         print(format_summary(results))
@@ -946,8 +1013,8 @@ def main():
         if problem_pages or ws.issues:
             print(generate_ai_corrections(results, ws))
 
-        # 全ページ C 以上なら成功
-        failing = [r for r in results if r.grade in ('D', 'F')]
+        # 全ページ B以上なら成功
+        failing = [r for r in results if r.grade in ('C', 'D', 'F')]
         sys.exit(0 if not failing else 1)
 
     else:

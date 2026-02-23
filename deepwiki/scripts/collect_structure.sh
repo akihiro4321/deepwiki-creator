@@ -19,6 +19,7 @@ fi
 
 # 絶対パスに変換
 TARGET_DIR="$(cd "$TARGET_DIR" && pwd)"
+DEEPWIKI_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 echo "=== DeepWiki 構造分析 ==="
 echo "対象: $TARGET_DIR"
@@ -26,13 +27,14 @@ echo "日時: $(date '+%Y-%m-%d %H:%M:%S')"
 echo ""
 
 # --- 除外パターン ---
+# target: Rust/Java ビルド成果物, Pods: iOS CocoaPods
 EXCLUDE_DIRS=(
   .git node_modules __pycache__ .next .nuxt dist build out
   .cache .tmp .temp vendor .venv venv env .env
   .idea .vscode .DS_Store coverage .nyc_output
   .terraform .serverless .aws-sam
-  target  # Rust/Java
-  Pods    # iOS
+  target
+  Pods
 )
 
 EXCLUDE_FILES=(
@@ -48,7 +50,7 @@ EXCLUDE_FILES=(
 # find 用の除外オプション構築
 FIND_EXCLUDES=""
 for dir in "${EXCLUDE_DIRS[@]}"; do
-  FIND_EXCLUDES="$FIND_EXCLUDES -name $dir -prune -o"
+  FIND_EXCLUDES="$FIND_EXCLUDES -name \"$dir\" -prune -o"
 done
 
 # --- セクション 1: ディレクトリツリー ---
@@ -76,9 +78,11 @@ echo "## ファイル統計"
 echo ""
 echo "### 言語別ファイル数"
 echo '```'
+set +o pipefail
 eval "find \"$TARGET_DIR\" \( $FIND_EXCLUDES -type f -print \)" 2>/dev/null | \
   grep -v -E '(\.lock$|\.sum$|\.min\.|\.map$)' | \
   sed 's/.*\.//' | sort | uniq -c | sort -rn | head -20 || echo "(集計に失敗しました)"
+set -o pipefail
 echo '```'
 
 # 総ファイル数
@@ -147,44 +151,30 @@ echo '```'
 
 # --- セクション 4: ファイルサイズランキング ---
 echo ""
+echo "## 依存関係マップ (import/export)"
+python3 "$DEEPWIKI_DIR/scripts/analyze_dependencies.py" "$TARGET_DIR" 2>/dev/null || true
+echo ""
+
 echo "## ファイルサイズ Top 20（大きいファイル=重要度が高い可能性）"
 echo '```'
+set +o pipefail
 eval "find \"$TARGET_DIR\" \( $FIND_EXCLUDES -type f \( \
   -name '*.ts' -o -name '*.tsx' -o -name '*.js' -o -name '*.jsx' -o \
   -name '*.py' -o -name '*.rs' -o -name '*.go' -o -name '*.java' -o \
   -name '*.rb' -o -name '*.cs' -o -name '*.cpp' -o -name '*.c' -o \
-  -name '*.swift' -o -name '*.kt' \
+  -name '*.swift' -o -name '*.kt' -o -name '*.vue' -o -name '*.svelte' -o \
+  -name '*.php' -o -name '*.dart' \
   \) -print \)" 2>/dev/null | \
   xargs wc -l 2>/dev/null | sort -rn | head -21 | \
-  grep -v ' total$' | \
+  (grep -v ' total$' || true) | \
   sed "s|$TARGET_DIR/||" || echo "(集計に失敗しました)"
+set -o pipefail
 echo '```'
 
 # --- セクション 5: エクスポート情報 ---
 echo ""
-echo "## 主要エクスポート（公開 API の概要）"
-echo ""
-echo "### TypeScript/JavaScript の export"
-echo '```'
-eval "find \"$TARGET_DIR\" \( $FIND_EXCLUDES -type f \( \
-  -name '*.ts' -o -name '*.tsx' \
-  \) ! -name '*.test.*' ! -name '*.spec.*' ! -name '*.d.ts' \
-  -print \)" 2>/dev/null | \
-  head -50 | \
-  xargs awk '/^(export |export default )(class|function|const|interface|type|enum|abstract )/ {print FILENAME ":" FNR ":" $0}' 2>/dev/null | \
-  sed "s|^$TARGET_DIR/||" | head -100 || true
-echo '```'
-
-echo ""
-echo "### Python の公開クラス・関数"
-echo '```'
-eval "find \"$TARGET_DIR\" \( $FIND_EXCLUDES -type f -name '*.py' \
-  ! -name 'test_*' ! -name '*_test.py' \
-  -print \)" 2>/dev/null | \
-  head -50 | \
-  xargs awk '/^(class |def |async def )/ {if ($0 !~ /^\s*#/) print FILENAME ":" FNR ":" $0}' 2>/dev/null | \
-  sed "s|^$TARGET_DIR/||" | head -100 || true
-echo '```'
+echo "## 主要エクスポート・関数シグネチャ"
+python3 "$DEEPWIKI_DIR/scripts/extract_signatures.py" "$TARGET_DIR" 2>/dev/null || true
 
 echo ""
 echo "=== 分析完了 ==="
