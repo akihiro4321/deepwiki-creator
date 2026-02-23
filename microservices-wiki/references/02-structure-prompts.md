@@ -75,32 +75,61 @@
 ## 3. `outline.json` スキーマ仕様
 
 ユーザー承認後に指定ディレクトリに出力する進捗管理・構成情報のJSONフォーマット。
-`status` は初期値 `"pending"` で生成し、検証通過後に更新される。各ページには `inputSources`, `keyDiagrams` など生成時の指示を含めること。
+`status` は初期値 `"pending"` で生成し、`generate_pages.py` が `"done"` に更新する。
+
+> [!IMPORTANT]
+> `generate_pages.py` が動作するために以下の**フラット構造**（`pages` 直下の配列）で出力すること。`keyDiagrams` は `description` フィールドに組み込む。
 
 ```json
 {
   "title": "EC Platform - Microservices Architecture Wiki",
   "description": "ECプラットフォームのマイクロサービス全体アーキテクチャドキュメント",
-  "sections": [
+  "generatedAt": "2026-02-22T12:00:00+09:00",
+  "outputDir": "/path/to/docs/arch-wiki",
+  "targetDir": "/path/to/target/project",
+  "remoteBaseUrl": "https://github.com/org/repo",
+  "pages": [
     {
-      "id": "1",
-      "title": "System Overview",
-      "pages": [
-        {
-          "id": "1.1",
-          "title": "Architecture Overview",
-          "inputSources": [
-            "docker-compose.yml",
-            "k8s/deployments/",
-            "README.md"
-          ],
-          "importance": "high",
-          "relatedPages": ["1.2", "2.1"],
-          "keyDiagrams": ["全体構成 flowchart TD", "リクエストフロー sequenceDiagram"],
-          "status": "pending"
-        }
-      ]
+      "id": "1.1",
+      "title": "Architecture Overview",
+      "description": "システム全体のアーキテクチャ概要とサービス間の依存関係。主要ダイアグラム: 全体構成 flowchart TD、リクエストフロー sequenceDiagram",
+      "filename": "1.1-architecture-overview.md",
+      "filePaths": [
+        "docker-compose.yml",
+        "k8s/deployments/",
+        "README.md"
+      ],
+      "importance": "high",
+      "relatedPages": ["1.2", "2.1"],
+      "status": "pending"
+    },
+    {
+      "id": "1.2",
+      "title": "Service Catalog",
+      "description": "全サービスの責務・ポート・依存関係の一覧。各サービスのエントリーポイントと主要環境変数を整理する。",
+      "filename": "1.2-service-catalog.md",
+      "filePaths": [
+        "docker-compose.yml",
+        "k8s/deployments/*.yaml"
+      ],
+      "importance": "high",
+      "relatedPages": ["1.1"],
+      "status": "pending"
     }
   ]
 }
 ```
+
+**必須フィールド一覧:**
+
+| フィールド | 型 | 説明 |
+| :--- | :--- | :--- |
+| `outputDir` | string | Wiki出力先の絶対パス |
+| `targetDir` | string | 解析対象コードベースのルートパス（絶対パス） |
+| `pages[].id` | string | ページID（例: `"1.1"`, `"2.3"`） |
+| `pages[].title` | string | ページタイトル（英語） |
+| `pages[].description` | string | ページの説明。欲しいMermaidダイアグラム種類もここに含める |
+| `pages[].filename` | string | 出力ファイル名（例: `"1.1-architecture-overview.md"`） |
+| `pages[].filePaths` | string[] | 参照ファイルパスのリスト（5〜15ファイル推奨） |
+| `pages[].importance` | string | `"high"` / `"medium"` / `"low"` のいずれか |
+| `pages[].status` | string | 初期値は必ず `"pending"` |
