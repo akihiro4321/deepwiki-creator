@@ -16,6 +16,8 @@
    - **役割**: 親エージェントから処理を委譲され、複数のページ生成を並行して実行するPythonスクリプト。動的に特化プロンプトを構築して独立した `gemini` CLIプロセスを呼び出し、ページの執筆を制御します。
 4. **品質検証スクリプト (Validator / `validate_page.py`)**
    - **役割**: 生成されたファイルの品質（文字数、Mermaid図の有無、スニペットの数など）を確定的なルールで採点し、合格かリトライが必要かを判定します。`generate_pages.py` の自己修正ループ内で利用されます。
+5. **Mermaid修正スクリプト (Mermaid Fixer / `fix_mermaid.py`)**
+   - **役割**: 全ページ生成完了後に各Markdownファイルを走査し、Mermaidダイアグラムのルール違反（LRレイアウト、ノードIDのハイフン、括弧の未クォートなど）を正規表現で静的チェックします。違反が検出されたファイルのみ Gemini CLI を呼び出して違反箇所だけを修正し、修正後に再チェックして確認します。
 
 ---
 
@@ -31,15 +33,16 @@
 - **処理**: Phase 1の要約レポートをもとに、親エージェントがWiki全体のページ構成（アウトライン）を設計し、ユーザーに提案・合意を得ます。合意後、進捗管理ファイルとして `outline.json` を出力します。
 - **意図**: ユーザーとの対話（ヒューマンインザループ）を挟むことで、出力の方向修正を可能にします。また、JSONファイルで状態を管理することで、途中で処理が中断しても再開可能な堅牢性を持たせています。
 
-### Phase 3: ページ単位の並列生成と自己修正ループ (Parallel Generation & Self-Correction Loop)
-- **処理**: 親エージェントが `outline.json` の作成後、統合スクリプト (`generate_pages.py`) に以後の処理を委譲します。このスクリプトは未完了ページを抽出し、内部で個別の `gemini` プロセスを立ち上げて執筆を並列に行います。生成後は自動で **検証スクリプト (`validate_page.py`)** を呼び出し、合格基準に達するまでプログラム制御による修整ループが回ります。
-- **意図**: 
+### Phase 3: ページ単位の並列生成・自己修正・Mermaid修正 (Parallel Generation, Self-Correction & Mermaid Fix)
+- **処理**: 親エージェントが `outline.json` の作成後、統合スクリプト (`generate_pages.py`) に以後の処理を委譲します。このスクリプトは未完了ページを抽出し、内部で個別の `gemini` プロセスを立ち上げて執筆を並列に行います。生成後は自動で **検証スクリプト (`validate_page.py`)** を呼び出し、合格基準に達するまでプログラム制御による修整ループが回ります。全ページ完了後、**Mermaid修正スクリプト (`fix_mermaid.py`)** を実行してダイアグラムのルール違反を一括修正します。
+- **意図**:
   1. **並列処理による高速化**: 複数ページを同時に生成させることで、処理完了までの時間を劇的に短縮します。
   2. **コンテキストの分離と汚染防止**: 「今書く1ページに必要な2〜3個のファイルとフォーマット」だけをプロンプトとして構築し、完全に独立した生成プロセスに渡すことで、無関係な情報によるハルシネーションを排除します。
   3. **確実な自己修正と安定運用**: スクリプトが検証結果を判定し、タイムアウトや最大制限付きの再実行ループを回すため、LLM自身の自律的なツール実行に頼るよりも安定し、スタックや無限ループを防止できます。
+  4. **Mermaid品質の後処理保証**: 生成時のプロンプト指示だけでは守り切れないMermaidルール違反を、全ページ完了後に正規表現で静的チェックして確実に修正します。違反のないページはスキップするため、余分なGemini呼び出しは発生しません。
 
 ### Phase 4: 結合・整形 (Assembly)
-- **処理**: 全ページの生成が完了した後、インデックスページ（`index.md`）を作成し、全体の結合を行って完了報告をします。
+- **処理**: 全ページの生成・Mermaid修正が完了した後、インデックスページ（`index.md`）を作成し、全体の結合を行って完了報告をします。
 
 ---
 
@@ -50,45 +53,53 @@
 ```mermaid
 sequenceDiagram
     participant User as ユーザー
-    participant Script1 as 分析/検証<br/>スクリプト群
-    participant Main as 親エージェント<br/>(Coordinator)
-    participant GenScript as 生成スクリプト<br/>(generate_pages.py)
-    participant Gemini as Gemini CLIプロセス<br/>(並列実行)
+    participant Script1 as 分析/検証スクリプト群
+    participant Main as 親エージェント(Coordinator)
+    participant GenScript as generate_pages.py
+    participant Gemini as Gemini CLI(並列実行)
+    participant MermaidFix as fix_mermaid.py
 
     User->>+Main: DeepWikiを作成して
-    
-    %% Phase 1 & 2
-    Note over Main: 【Phase 1 & 2】<br/>構造解析とアウトライン作成
+
+    Note over Main: Phase 1 & 2: 構造解析とアウトライン作成
     Main->>+Script1: collect_structure.sh 実行
     Script1-->>-Main: プロジェクトサマリーレポート
     Main->>User: Wikiのアウトライン設計を提案
     User-->>Main: 承認 (OK)
     Main->>Main: outline.json を生成・保存
-    
-    %% Phase 3
-    Note over Main: 【Phase 3】<br/>処理委譲（親のコンテキストは保護される）
+
+    Note over Main: Phase 3: 処理委譲(親のコンテキストは保護される)
     Main->>+GenScript: generate_pages.py 実行
-    
+
     loop 各ページ並列処理
-        GenScript->>+Gemini: 独立した生成指示<br/>(ﾀｲﾄﾙ, ﾌｧｲﾙ群, ﾌｫｰﾏｯﾄ)
-        Note over Gemini: 【ページ執筆特化のコンテキスト】<br/>必要な情報だけを読み込み<br/>高品質なMarkdownを出力。
+        GenScript->>+Gemini: 独立した生成指示(タイトル, ファイル群, フォーマット)
+        Note over Gemini: ページ執筆特化のコンテキスト
         Gemini-->>-GenScript: Markdownを出力
-        
+
         GenScript->>+Script1: validate_page.py 実行
         Note over Script1: 確定的なルールベース採点
-        
+
         alt 不合格 (Grade C以下)
-            Script1-->>GenScript: エラー内容（フィードバック）
+            Script1-->>GenScript: エラー内容(フィードバック)
             GenScript->>GenScript: エラーを含めてプロンプト再構築
         else 合格 (Grade B以上)
             Script1-->>-GenScript: 合格
             GenScript->>GenScript: outline.json の該当ページを done に
         end
     end
-    
+
     GenScript-->>-Main: 全ページの生成完了
-    
-    %% Phase 4
+
+    Main->>+MermaidFix: fix_mermaid.py 実行
+    Note over MermaidFix: 全doneページのMermaidを静的チェック
+    loop 違反ファイルのみ
+        MermaidFix->>+Gemini: 違反箇所のみ修正指示
+        Gemini-->>-MermaidFix: 修正済みファイルを保存
+        MermaidFix->>MermaidFix: 再チェックで修正を確認
+    end
+    MermaidFix-->>-Main: Mermaid修正完了
+
+    Note over Main: Phase 4: 結合・整形
     Main->>Main: index.md などの結合処理
     Main-->>-User: 生成完了
 ```

@@ -63,6 +63,9 @@
 ユーザー承認後に指定ディレクトリに出力する進捗管理用のJSONフォーマット。
 `status` 項目は初期値 `"pending"` で生成し、以降の Phase 3c（検証合格後）で逐次 `"done"` に更新する。
 
+> [!WARNING]
+> **`generate_pages.py` が直接参照するフィールドは変更・省略禁止。** フィールド名を変えると（例: `title` を `projectName` にするなど）スクリプトが正常動作しない。
+
 ```json
 {
   "title": "プロジェクト名 Wiki Outline",
@@ -75,7 +78,10 @@
       "title": "Architecture Overview",
       "description": "システムの全体アーキテクチャとディレクトリ構成の解説",
       "filename": "1.1-architecture-overview.md",
-      "filePaths": ["src/index.ts"],
+      "filePaths": [
+        "/absolute/path/to/src/index.ts",
+        "/absolute/path/to/src/core/app.ts"
+      ],
       "importance": "high",
       "relatedPages": ["2.1"],
       "status": "pending"
@@ -83,3 +89,20 @@
   ]
 }
 ```
+
+**各フィールドの詳細:**
+
+| フィールド | 必須 | 型 | 説明・注意事項 |
+| :--- | :---: | :--- | :--- |
+| `title` | ○ | string | Wiki全体のタイトル。`projectName` など別名は使わないこと |
+| `generatedAt` | ○ | string | ISO 8601形式のタイムスタンプ |
+| `outputDir` | ○ | string | Wikiファイルの出力先（絶対パス） |
+| `targetDir` | ○ | string | 解析対象コードベースのルート（絶対パス）。`generate_pages.py` が参照 |
+| `pages[].id` | ○ | string | `"1.1"` のようなセクション番号形式 |
+| `pages[].title` | ○ | string | ページタイトル（英語） |
+| `pages[].description` | ○ | string | Geminiへの生成指示として使用。具体的に記述するほど品質が上がる |
+| `pages[].filename` | ○ | string | `"1.1-architecture-overview.md"` 形式。省略すると id から自動生成 |
+| `pages[].filePaths` | ○ | string[] | 参照ファイルパスのリスト（5〜15ファイル推奨）。絶対パスを推奨 |
+| `pages[].importance` | ○ | string | `"high"` / `"medium"` / `"low"` のいずれか（小文字必須） |
+| `pages[].relatedPages` | △ | string[] | 関連ページのIDリスト（省略可） |
+| `pages[].status` | ○ | string | 初期値は必ず `"pending"`。スクリプトが `"done"` または `"error"` に更新する |

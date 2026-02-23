@@ -244,9 +244,10 @@ async def validate_page(page_file_path: str, importance: str, working_dir: str) 
     except Exception as e:
         return False, f"Exception during validation: {e}"
 
-async def process_page(page: Dict[str, Any], output_dir: str, working_dir: str, target_dir: str) -> bool:
+async def process_page(page: Dict[str, Any], output_dir: str, working_dir: str, target_dir: str) -> Tuple[bool, Optional[str]]:
     """
     Processes a single page: builds prompt, runs gemini, validates, and loops if necessary.
+    Returns (success, error_message). error_message is None on success.
     """
     page_id = page.get("id")
     title = page.get("title")
@@ -298,11 +299,12 @@ async def process_page(page: Dict[str, Any], output_dir: str, working_dir: str, 
         else:
             print(f"[{page_id}] ❌ Validation failed. Gathering feedback for retry...")
             feedback = validation_output
-            
+
     if not success:
         print(f"[{page_id}] 🛑 Failed to generate a valid page after {MAX_RETRIES} retries.")
-        
-    return success
+        return False, feedback
+
+    return True, None
 
 async def main():
     parser = argparse.ArgumentParser(description="DeepWiki Page Generator Orchestrator")
@@ -343,9 +345,14 @@ async def main():
     
     async def process_with_semaphore(page, idx):
         async with semaphore:
-            success = await process_page(page, output_dir, working_dir, target_dir)
+            success, error_msg = await process_page(page, output_dir, working_dir, target_dir)
             # Update status in memory
-            page["status"] = "done" if success else "error"
+            if success:
+                page["status"] = "done"
+                page.pop("error", None)  # 再実行で成功した場合はエラー情報をクリア
+            else:
+                page["status"] = "error"
+                page["error"] = error_msg or "Unknown error"
             
             # Save progress synchronously to avoid race conditions on the JSON file
             try:
