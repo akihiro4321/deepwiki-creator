@@ -319,7 +319,7 @@ async def validate_page(page_file_path: str, importance: str, working_dir: str) 
     validate_script = os.path.join(script_dir, "validate_page.py")
 
     cmd = [
-        "python3",
+        sys.executable,  # generate_pages.py を呼んだPythonと同じ実行ファイル（.venv/bin/python）を使う
         validate_script,
         page_file_path,
         "--importance", importance
