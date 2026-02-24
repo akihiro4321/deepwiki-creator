@@ -60,9 +60,17 @@ DEEPWIKI_PYTHON="$DEEPWIKI_DIR/.venv/bin/python"
 ### Step 1a: メタデータ収集
 
 1. コンテキスト取得スクリプトの実行:
+   **実行前にユーザーへ確認**: テストファイル（`*.test.ts`、`tests/` ディレクトリ等）を分析対象に含めるか確認する。不要な場合は `--exclude-tests` フラグを付けて実行する。
+
    ```bash
+   # テストファイルを含める場合（デフォルト）
    bash "$DEEPWIKI_DIR/scripts/collect_structure.sh" $TARGET_DIR
+
+   # テストファイルを除外する場合
+   bash "$DEEPWIKI_DIR/scripts/collect_structure.sh" $TARGET_DIR --exclude-tests
    ```
+
+   対象がgitリポジトリの場合、`.gitignore` に記載されたファイル・ディレクトリは自動的に除外される。
    （ディレクトリツリー、依存関係マップ、主要エクスポート・関数シグネチャの一覧などを取得）
 2. 存在する主要ファイル（README, package.json等のパッケージ定義、ビルド設定、CI設定等）の優先的な読み取り。
 3. 技術スタック、フレームワーク、主要な依存関係の特定。
