@@ -3,8 +3,9 @@ import sys
 import os
 import ast
 import json
+import subprocess
 from pathlib import Path
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 
 try:
     import tree_sitter
@@ -249,6 +250,20 @@ def extract_java_signatures(filepath: Path) -> List[Dict[str, Any]]:
         
     return sorted(signatures, key=lambda x: x["line"])
 
+def get_git_files(target_dir: Path) -> Optional[List[Path]]:
+    """gitリポジトリなら git ls-files で .gitignore 考慮済みのファイルリストを返す。失敗時は None。"""
+    try:
+        result = subprocess.run(
+            ['git', '-C', str(target_dir), 'ls-files', '--cached', '--others', '--exclude-standard'],
+            capture_output=True, text=True, timeout=30
+        )
+        if result.returncode == 0:
+            return [target_dir / line for line in result.stdout.splitlines() if line]
+    except Exception:
+        pass
+    return None
+
+
 def main():
     if len(sys.argv) < 2:
         print("Usage: python extract_signatures.py <target_directory> [--json]", file=sys.stderr)
@@ -269,38 +284,47 @@ def main():
 
     result_map: Dict[str, List[Dict[str, Any]]] = {}
 
-    for root, dirs, files in os.walk(target_dir):
-        dirs[:] = [d for d in dirs if d not in (
-            '.git', 'node_modules', '__pycache__', '.next', '.nuxt', 'dist', 'build', 'out',
-            '.cache', '.tmp', '.temp', 'vendor', '.venv', 'venv', 'env', '.env',
-            '.idea', '.vscode', '.DS_Store', 'coverage', '.nyc_output',
-            '.terraform', '.serverless', '.aws-sam',
-            'target', 'Pods', '.run',
-        )]
-        
-        for file in files:
-            filepath = Path(root) / file
-            rel_path = str(filepath.relative_to(target_dir))
-            
-            if file.endswith('.min.js') or file.endswith('.bundle.js') or 'bundle' in filepath.parts:
-                continue
-            if filepath.exists() and filepath.stat().st_size > 500 * 1024:
-                continue
-            
-            sigs = []
-            if file.endswith('.py'):
-                sigs = extract_python_signatures(filepath)
-            elif file.endswith(('.js', '.jsx')):
-                sigs = extract_js_ts_signatures(filepath, JS_LANG)
-            elif file.endswith(('.ts', '.tsx', '.vue')):
-                sigs = extract_js_ts_signatures(filepath, TS_LANG)
-            elif file.endswith('.java'):
-                sigs = extract_java_signatures(filepath)
-            else:
-                continue
-                
-            if sigs:
-                result_map[rel_path] = sigs
+    def process_file(filepath: Path) -> None:
+        file = filepath.name
+        rel_path = str(filepath.relative_to(target_dir))
+
+        if file.endswith('.min.js') or file.endswith('.bundle.js') or 'bundle' in filepath.parts:
+            return
+        if not filepath.exists() or filepath.stat().st_size > 500 * 1024:
+            return
+
+        sigs = []
+        if file.endswith('.py'):
+            sigs = extract_python_signatures(filepath)
+        elif file.endswith(('.js', '.jsx')):
+            sigs = extract_js_ts_signatures(filepath, JS_LANG)
+        elif file.endswith(('.ts', '.tsx', '.vue')):
+            sigs = extract_js_ts_signatures(filepath, TS_LANG)
+        elif file.endswith('.java'):
+            sigs = extract_java_signatures(filepath)
+        else:
+            return
+
+        if sigs:
+            result_map[rel_path] = sigs
+
+    git_files = get_git_files(target_dir)
+    if git_files is not None:
+        # gitモード: .gitignore 考慮済みのリストをイテレート
+        for filepath in git_files:
+            process_file(filepath)
+    else:
+        # フォールバック: os.walk + ハードコードリスト
+        for root, dirs, files in os.walk(target_dir):
+            dirs[:] = [d for d in dirs if d not in (
+                '.git', 'node_modules', '__pycache__', '.next', '.nuxt', 'dist', 'build', 'out',
+                '.cache', '.tmp', '.temp', 'vendor', '.venv', 'venv', 'env', '.env',
+                '.idea', '.vscode', '.DS_Store', 'coverage', '.nyc_output',
+                '.terraform', '.serverless', '.aws-sam',
+                'target', 'Pods', '.run',
+            )]
+            for file in files:
+                process_file(Path(root) / file)
 
     if output_json:
         print(json.dumps(result_map, indent=2, ensure_ascii=False))
